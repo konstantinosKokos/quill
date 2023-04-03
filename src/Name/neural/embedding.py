@@ -1,12 +1,11 @@
 from __future__ import annotations
 
+import torch
+from .utils import pad_sequence
 from torch.nn import Module, Parameter
 from torch.nn.functional import linear
 from torch.nn.init import normal_ as normal
 from torch.nn.utils.parametrizations import orthogonal
-import torch
-# from torch import Tensor, empty, eye, long, tensor, bucketize, ravel, index_select, zeros, arange
-from .utils import pad_sequence
 
 
 class BinaryTreeEncoder(Module):
