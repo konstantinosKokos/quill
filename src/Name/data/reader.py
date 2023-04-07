@@ -5,134 +5,140 @@ from os import listdir, path
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from functools import reduce
-from typing import Generic, TypeVar
-
+from typing import Generic, TypeVar, Any
+from typing_extensions import Self
 
 Name = TypeVar('Name')
 Other = TypeVar('Other')
 
 
-@dataclass
-class File:
+@dataclass(unsafe_hash=True)
+class File(Generic[Name]):
     name: str
-    scope: list[Declaration]
-    samples: list[Hole]
+    scope: list[Declaration[Name]]
+    samples: list[Hole[Name]]
 
     def __repr__(self) -> str:
         return '\n'.join(f'{d}' for d in self.scope) + f'\n{"="*64}\n\n' + '\n'.join(f'{s}' for s in self.samples)
 
 
-@dataclass
-class Hole:
-    context: list[Declaration]
-    goal_type: AgdaType
-    goal_term: AgdaType
-    names_used: list[Reference]
+@dataclass(unsafe_hash=True)
+class Hole(Generic[Name]):
+    context: list[Declaration[Name]]
+    goal_type: AgdaType[Name]
+    goal_term: AgdaType[Name]
+    names_used: list[Reference[Name]]  # n.b. scope reference only
 
     def __repr__(self) -> str:
         return '\n'.join(f'\t{c}' for c in self.context) + f'\n\n\t{self.goal_term} : {self.goal_type}\n' + ('-' * 64)
 
 
-@dataclass
-class Declaration(Generic[Name]):
+class AgdaType(ABC, Generic[Name]):
+    @abstractmethod
+    def __repr__(self) -> str: ...
+    @abstractmethod
+    def substitute(self, names: dict[Name, Other]) -> Self[Other]: ...
+
+
+@dataclass(unsafe_hash=True)
+class Declaration(AgdaType[Name]):
     name: Name
-    type: AgdaType
+    type: AgdaType[Name]
 
     def __repr__(self) -> str: return f'{self.name} :: {self.type}'
 
-
-class AgdaType(ABC):
-    @abstractmethod
-    def __repr__(self) -> str: ...
-
-    @property
-    @abstractmethod
-    def names(self) -> set[str]: ...
+    def substitute(self, names: dict[Name, Other]) -> Declaration[Other]:
+        return Declaration(names[self.name], self.type.substitute(names))
 
 
-@dataclass
-class PiType(AgdaType):
-    argument: AgdaType | Declaration
-    result: AgdaType
+Telescope = tuple[Declaration, ...]
+
+
+@dataclass(unsafe_hash=True)
+class PiType(AgdaType[Name]):
+    argument: AgdaType[Name]
+    result: AgdaType[Name]
 
     def __repr__(self) -> str:
         arg_repr = f'({self.argument})' if isinstance(self.argument, (Declaration, PiType)) else f'{self.argument}'
         return f'{arg_repr} -> {self.result}'
 
-    @property
-    def names(self) -> set[str]: return {self.argument.name, *self.argument.type.names, *self.result.names}
+    def substitute(self, names: dict[Name, Other]) -> PiType[Other]:
+        return PiType(self.argument.substitute(names), self.result.substitute(names))
 
 
-@dataclass
-class LamType(AgdaType):
-    abstraction: str
-    body: AgdaType
+@dataclass(unsafe_hash=True)
+class LamType(AgdaType[Name]):
+    abstraction: Any
+    body: AgdaType[Name]
 
     def __repr__(self) -> str: return f'λ{self.abstraction}.{self.body}'
 
-    @property
-    def names(self) -> set[str]: return {*self.body.names}
+    def substitute(self, names: dict[Name, Other]) -> LamType[Other]:
+        return LamType(self.abstraction, self.body.substitute(names))
 
 
-@dataclass
-class AppType(AgdaType):
-    head: Reference | DeBruijn
-    argument: AgdaType
+@dataclass(unsafe_hash=True)
+class AppType(AgdaType[Name]):
+    head: Reference[Name] | DeBruijn
+    argument: AgdaType[Name]
 
-    def __repr__(self) -> str: return f'{self.head} {self.argument}'
+    def __repr__(self) -> str:
+        arg_repr = f'({self.argument})' if isinstance(self.argument, AppType) else f'{self.argument}'
+        return f'{self.head} {arg_repr}'
 
-    @property
-    def names(self) -> set[str]: return {*self.head.names, *self.argument.names}
+    def substitute(self, names: dict[Name, Other]) -> AppType[Other]:
+        return AppType(self.head.substitute(names), self.argument.substitute(names))
 
 
-@dataclass
-class Reference(AgdaType, Generic[Name]):
+@dataclass(unsafe_hash=True)
+class Reference(AgdaType[Name]):
     name: Name
 
-    def __repr__(self) -> str: return self.name
+    def __repr__(self) -> str: return f'{self.name}'
 
-    @property
-    def names(self) -> set[str]: return {self.name}
+    def substitute(self, names: dict[Name, Other]) -> Reference[Other]:
+        return Reference(names[self.name])
 
 
-@dataclass
-class DeBruijn(AgdaType):
+@dataclass(unsafe_hash=True)
+class DeBruijn(AgdaType[Name]):
     index: int
 
     def __repr__(self) -> str: return f'@{self.index}'
 
-    @property
-    def names(self) -> set[str]: return set()
+    def substitute(self, names: dict[Name, Other]) -> DeBruijn[Other]:
+        return self
 
 
-@dataclass
-class LitType(AgdaType):
-    string: str
+@dataclass(unsafe_hash=True)
+class LitType(AgdaType[Name]):
+    content: Any
 
-    def __repr__(self) -> str: return self.string
+    def __repr__(self) -> str: return f'{self.content}'
 
-    @property
-    def names(self) -> set[str]: return set()
-
-
-@dataclass
-class SortType(AgdaType):
-    string: str
-
-    def __repr__(self) -> str: return self.string
-
-    @property
-    def names(self) -> set[str]: return set()
+    def substitute(self, names: dict[Name, Other]) -> LitType[Other]:
+        return self
 
 
-@dataclass
-class LevelType(AgdaType):
-    string: str
+@dataclass(unsafe_hash=True)
+class SortType(AgdaType[Name]):
+    content: Any
 
-    def __repr__(self) -> str: return self.string
+    def __repr__(self) -> str: return f'{self.content}'
 
-    @property
-    def names(self) -> set[str]: return set()
+    def substitute(self, names: dict[Name, Other]) -> SortType[Other]:
+        return self
+
+
+@dataclass(unsafe_hash=True)
+class LevelType(AgdaType[Name]):
+    content: Any
+
+    def __repr__(self) -> str: return f'{self.content}'
+
+    def substitute(self, names: dict[Name, Other]) -> LevelType[Other]:
+        return self
 
 
 def parse_dir(directory: str) -> list[File]:
