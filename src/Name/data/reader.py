@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from functools import reduce
 from typing import Generic, TypeVar, Any
 from typing_extensions import Self
+from collections import defaultdict
 
 Name = TypeVar('Name')
 Other = TypeVar('Other')
@@ -30,7 +31,10 @@ class Hole(Generic[Name]):
     names_used: list[Reference[Name]]  # n.b. scope reference only
 
     def __repr__(self) -> str:
-        return '\n'.join(f'\t{c}' for c in self.context) + f'\n\n\t{self.goal_term} : {self.goal_type}\n' + ('-' * 64)
+        ctx = '\n'.join(f'\t{c}' for c in self.context)
+        g_term = f'\t{self.goal_term} : {self.goal_type}'
+        names = f'{self.names_used}'
+        return f'{ctx}\n\n{g_term}\n\t{names}\n' + ('-' * 64)
 
 
 class AgdaType(ABC, Generic[Name]):
@@ -51,12 +55,17 @@ class Declaration(AgdaType[Name]):
         return Declaration(names[self.name], self.type.substitute(names))
 
 
+def strip_name(type_or_declaration: AgdaType | Declaration) -> AgdaType:
+    return type_or_declaration.type if isinstance(type_or_declaration, Declaration) else type_or_declaration
+
+
+
 Telescope = tuple[Declaration, ...]
 
 
 @dataclass(unsafe_hash=True)
 class PiType(AgdaType[Name]):
-    argument: AgdaType[Name]
+    argument: AgdaType[Name] | Declaration[Name]
     result: AgdaType[Name]
 
     def __repr__(self) -> str:
@@ -64,7 +73,11 @@ class PiType(AgdaType[Name]):
         return f'{arg_repr} -> {self.result}'
 
     def substitute(self, names: dict[Name, Other]) -> PiType[Other]:
-        return PiType(self.argument.substitute(names), self.result.substitute(names))
+        if isinstance(self.argument, Declaration):
+            argument = Declaration(self.argument.name, self.argument.type.substitute(names))
+        else:
+            argument = self.argument.substitute(names)
+        return PiType(argument, self.result.substitute(names))
 
 
 @dataclass(unsafe_hash=True)
@@ -200,3 +213,19 @@ def parse_type(type_json: dict) -> AgdaType:
 
 def parse_head(head_json: dict) -> Reference | DeBruijn:
     return Reference(name) if (name := head_json.get('Left')) is not None else DeBruijn(int(head_json.get('Right')))
+
+
+def enum_references(file: File[str]) -> File[int]:
+    name_to_index = defaultdict(lambda: -1,
+                                {declaration.name: idx for idx, declaration in enumerate(file.scope)})
+    return File(name=file.name,
+                scope=[Declaration(name=index,
+                                   type=declaration.type.substitute(name_to_index))
+                       for index, declaration in enumerate(file.scope)],
+                samples=[Hole(context=[Declaration(name=declaration.name,
+                                                   type=declaration.type.substitute(name_to_index))
+                                       for declaration in hole.context],
+                              goal_type=hole.goal_type.substitute(name_to_index),
+                              goal_term=hole.goal_term.substitute(name_to_index),
+                              names_used=[name.substitute(name_to_index) for name in hole.names_used])
+                         for hole in file.samples])
