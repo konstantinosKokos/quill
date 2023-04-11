@@ -5,7 +5,7 @@ from os import listdir, path
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from functools import reduce
-from typing import Generic, TypeVar, Any
+from typing import Generic, TypeVar, Any, Iterator
 from typing_extensions import Self
 from collections import defaultdict
 
@@ -57,7 +57,6 @@ class Declaration(AgdaType[Name]):
 
 def strip_name(type_or_declaration: AgdaType | Declaration) -> AgdaType:
     return type_or_declaration.type if isinstance(type_or_declaration, Declaration) else type_or_declaration
-
 
 
 Telescope = tuple[Declaration, ...]
@@ -154,22 +153,23 @@ class LevelType(AgdaType[Name]):
         return self
 
 
-def parse_dir(directory: str) -> list[File]:
-    return [parse_file(path.join(directory, file)) for file in listdir(directory)]
+def parse_dir(directory: str) -> Iterator[File[str]]:
+    for file in listdir(directory):
+        yield parse_file(path.join(directory, file))
 
 
-def parse_file(filepath: str) -> File:
+def parse_file(filepath: str) -> File[str]:
     with open(filepath, 'r') as f:
         return parse_data(load(f))
 
 
-def parse_data(data_json: dict) -> File:
+def parse_data(data_json: dict) -> File[str]:
     return File(name=data_json['scope']['name'],
                 scope=[parse_declaration(d) for d in data_json['scope']['item']],
                 samples=[parse_sample(s) for s in data_json['samples']])
 
 
-def parse_sample(sample_json: dict) -> Hole:
+def parse_sample(sample_json: dict) -> Hole[str]:
     context_json = sample_json['ctx']['thing']
     goal_type_json = sample_json['goal']
     goal_term_json = sample_json['term']
@@ -181,11 +181,11 @@ def parse_sample(sample_json: dict) -> Hole:
                 names_used=[Reference(name) for name in goal_names_used])
 
 
-def parse_declaration(dec_json: dict) -> Declaration:
+def parse_declaration(dec_json: dict) -> Declaration[str]:
     return Declaration(name=dec_json['name'], type=parse_type(dec_json['item']['thing']))
 
 
-def parse_type(type_json: dict) -> AgdaType:
+def parse_type(type_json: dict) -> AgdaType[str]:
     match type_json['tag']:
         case 'Pi':
             left, right = type_json['contents']
@@ -216,7 +216,7 @@ def parse_head(head_json: dict) -> Reference | DeBruijn:
 
 
 def enum_references(file: File[str]) -> File[int]:
-    name_to_index = defaultdict(lambda: -1,
+    name_to_index = defaultdict(lambda: None,
                                 {declaration.name: idx for idx, declaration in enumerate(file.scope)})
     return File(name=file.name,
                 scope=[Declaration(name=index,
