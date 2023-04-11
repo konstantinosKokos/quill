@@ -1,3 +1,5 @@
+import pdb
+
 import torch
 from opt_einsum import contract
 from torch import Tensor
@@ -38,23 +40,23 @@ class RMSNorm(Module):
         return x / norm.clamp(min=self.eps) * self.g
 
 
-def multihead_attn_fn(queries: Tensor, keys: Tensor, values: Tensor, mask: Tensor) -> Tensor:
-    return mh_scaled_dot_product(queries, keys, values, mask)
-
-
-def mh_scaled_dot_product(queries: Tensor, keys: Tensor, values: Tensor, mask: Tensor) -> Tensor:
+def routed_attention(queries: Tensor, keys: Tensor, values: Tensor, mask: Tensor, routing: Tensor | None) -> Tensor:
     dk, num_heads = keys.shape[-2:]
     dividend = torch.sqrt(torch.tensor(dk, device=queries.device, dtype=torch.float))
 
-    weights = contract('bidh,bodh->bioh', queries, keys) / dividend
+    if routing is None:
+        weights = contract('bidh,bodh->bioh', queries, keys) / dividend
+    else:
+        pdb.set_trace()
+        weights = contract('lidh,bl,bodh->bioh', queries, routing, keys) / dividend
     weights = weights.masked_fill_(mask.unsqueeze(-1), value=-1e10)
     weights = weights.softmax(dim=-2)
     return torch.einsum('bioh,bodh->bidh', weights, values).flatten(-2)
 
 
-class MultiHeadAttention(Module):
+class RoutedAttention(Module):
     def __init__(self, num_heads: int, dim: int, dropout_rate: float = 0.1):
-        super(MultiHeadAttention, self).__init__()
+        super(RoutedAttention, self).__init__()
         self.num_heads = num_heads
         if dim % num_heads != 0:
             raise ValueError('dim must be divisible by num_heads')
@@ -64,10 +66,10 @@ class MultiHeadAttention(Module):
         self.wo = Linear(in_features=dim, out_features=dim, bias=False)
         self.dropout = Dropout(dropout_rate)
 
-    def forward(self, queries: Tensor, keys: Tensor, values: Tensor, mask: Tensor) -> Tensor:
+    def forward(self, queries: Tensor, keys: Tensor, values: Tensor, mask: Tensor, routing: Tensor | None) -> Tensor:
         qs = self.q_transformation(queries).view(queries.shape[0], queries.shape[1], -1, self.num_heads)
         ks = self.k_transformation(keys).view(keys.shape[0], keys.shape[1], -1, self.num_heads)
         vs = self.v_transformation(values).view(values.shape[0], values.shape[1], -1, self.num_heads)
-        mha = multihead_attn_fn(qs, ks, vs, mask)
+        mha = routed_attention(qs, ks, vs, mask, routing)
         mha = self.dropout(mha)
         return self.wo(mha)

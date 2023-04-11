@@ -84,13 +84,13 @@ class TokenEncoder(Module):
     def forward(self,
                 token_types: Tensor,
                 token_values: Tensor,
-                tree_positions: Tensor,
-                ground_positions: Tensor) -> Tensor:
+                token_positions: Tensor,
+                tree_positions: Tensor) -> Tensor:
         type_embeddings = self.type_encoder(token_types)
-        unique_paths = tree_positions.unique(True)
+        unique_paths = token_positions.unique(True)
         self.path_encoder.embed_positions(unique_paths.cpu().tolist())
-        path_embeddings = self.path_encoder(tree_positions)
-        ground_embeddings = self.reference_encoder(ground_positions)
+        path_embeddings = self.path_encoder(token_positions)
+        ground_embeddings = self.reference_encoder(tree_positions)
 
         token_value_embeddings = torch.zeros_like(ground_embeddings)
 
