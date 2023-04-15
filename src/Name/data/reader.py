@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pdb
 from json import load
 from os import listdir, path
 from dataclasses import dataclass
@@ -17,24 +18,25 @@ Other = TypeVar('Other')
 class File(Generic[Name]):
     name: str
     scope: list[Declaration[Name]]
-    samples: list[Hole[Name]]
+    holes: list[Hole[Name]]
 
     def __repr__(self) -> str:
-        return '\n'.join(f'{d}' for d in self.scope) + f'\n{"="*64}\n\n' + '\n'.join(f'{s}' for s in self.samples)
+        return '\n'.join(f'{d}' for d in self.scope) + f'\n{"="*64}\n\n' + '\n'.join(f'{s}' for s in self.holes)
 
 
 @dataclass(unsafe_hash=True)
 class Hole(Generic[Name]):
-    context: list[Declaration[Name]]
+    # context: list[Declaration[Name]]
     goal_type: AgdaType[Name]
     goal_term: AgdaType[Name]
     names_used: list[Reference[Name]]  # n.b. scope reference only
 
     def __repr__(self) -> str:
-        ctx = '\n'.join(f'\t{c}' for c in self.context)
-        g_term = f'\t{self.goal_term} : {self.goal_type}'
-        names = f'{self.names_used}'
-        return f'{ctx}\n\n{g_term}\n\t{names}\n' + ('-' * 64)
+        return f'\t{self.goal_term} : {self.goal_type}'
+        # ctx = '\n'.join(f'\t{c}' for c in self.context)
+        # g_term = f'\t{self.goal_term} : {self.goal_type}'
+        # names = f'{self.names_used}'
+        # return f'{ctx}\n\n{g_term}\n\t{names}\n' + ('-' * 64)
 
 
 class AgdaType(ABC, Generic[Name]):
@@ -166,19 +168,22 @@ def parse_file(filepath: str) -> File[str]:
 def parse_data(data_json: dict) -> File[str]:
     return File(name=data_json['scope']['name'],
                 scope=[parse_declaration(d) for d in data_json['scope']['item']],
-                samples=[parse_sample(s) for s in data_json['samples']])
+                holes=[parse_holes(s) for s in data_json['samples']])
 
 
-def parse_sample(sample_json: dict) -> Hole[str]:
-    context_json = sample_json['ctx']['thing']
-    goal_type_json = sample_json['goal']
-    goal_term_json = sample_json['term']
-    goal_names_used = sample_json['namesUsed']
+def parse_holes(hole_json: dict) -> Hole[str]:
+    context_json = hole_json['ctx']['thing']
+    goal_type_json = hole_json['goal']
+    goal_term_json = hole_json['term']
+    goal_names_used = hole_json['namesUsed']
+    context = [Declaration(name=c['name'], type=parse_type(c['item'])) for c in context_json]
 
-    return Hole(context=[Declaration(name=c['name'], type=parse_type(c['item'])) for c in context_json],
-                goal_type=parse_type(goal_type_json['thing']),
-                goal_term=parse_type(goal_term_json['thing']),
-                names_used=[Reference(name) for name in goal_names_used])
+    return Hole(
+        goal_type=reduce(lambda result, argument: PiType(argument, result),
+                         reversed(context),
+                         parse_type(goal_type_json['thing'])),  # type: ignore
+        goal_term=parse_type(goal_term_json['thing']),
+        names_used=[Reference(name) for name in goal_names_used])
 
 
 def parse_declaration(dec_json: dict) -> Declaration[str]:
@@ -216,16 +221,14 @@ def parse_head(head_json: dict) -> Reference | DeBruijn:
 
 
 def enum_references(file: File[str]) -> File[int]:
-    name_to_index = defaultdict(lambda: None,
-                                {declaration.name: idx for idx, declaration in enumerate(file.scope)})
+    # todo: deal with missing scope entries
+    name_to_index = defaultdict(lambda: 0,
+                                {declaration.name: idx + 1 for idx, declaration in enumerate(file.scope)})
     return File(name=file.name,
                 scope=[Declaration(name=index,
                                    type=declaration.type.substitute(name_to_index))
                        for index, declaration in enumerate(file.scope)],
-                samples=[Hole(context=[Declaration(name=declaration.name,
-                                                   type=declaration.type.substitute(name_to_index))
-                                       for declaration in hole.context],
-                              goal_type=hole.goal_type.substitute(name_to_index),
-                              goal_term=hole.goal_term.substitute(name_to_index),
-                              names_used=[name.substitute(name_to_index) for name in hole.names_used])
-                         for hole in file.samples])
+                holes=[Hole(goal_type=hole.goal_type.substitute(name_to_index),
+                            goal_term=hole.goal_term.substitute(name_to_index),
+                            names_used=[name.substitute(name_to_index) for name in hole.names_used])
+                       for hole in file.holes])

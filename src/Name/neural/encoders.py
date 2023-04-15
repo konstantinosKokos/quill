@@ -1,4 +1,4 @@
-from .utils import SwiGLU, RMSNorm, RoutedAttention
+from .utils import SwiGLU, RMSNorm, MHA
 from torch import Tensor
 from torch.nn import Module, ModuleList, Sequential, Dropout
 
@@ -6,7 +6,7 @@ from torch.nn import Module, ModuleList, Sequential, Dropout
 class EncoderLayer(Module):
     def __init__(self, num_heads: int, dim: int, dropout_rate: float):
         super(EncoderLayer, self).__init__()
-        self.mha = RoutedAttention(num_heads, dim, dropout_rate)
+        self.mha = MHA(num_heads, dim, dropout_rate)
         self.ffn = SwiGLU(dim, 2 * dim, dim)
         self.ln_mha = RMSNorm(dim)
         self.ln_ffn = RMSNorm(dim)
@@ -17,27 +17,6 @@ class EncoderLayer(Module):
         mha_x = self.mha(encoder_input, encoder_input, encoder_input, padding_mask, None)
         mha_x = self.dropout(mha_x)
         mha_x = encoder_input + mha_x
-        mha_x = self.ln_mha(mha_x)
-
-        ffn_x = self.ffn(mha_x)
-        ffn_x = self.dropout(ffn_x)
-        ffn_x = ffn_x + mha_x
-        return self.ln_ffn(ffn_x)
-
-
-class CrossEncoder(Module):
-    def __init__(self, num_heads: int, dim: int, dropout_rate: float = 0.1):
-        super(CrossEncoder, self).__init__()
-        self.mha = RoutedAttention(num_heads, dim, dropout_rate)
-        self.ffn = SwiGLU(dim, 2 * dim, dim)
-        self.ln_mha = RMSNorm(dim)
-        self.ln_ffn = RMSNorm(dim)
-        self.dropout = Dropout(dropout_rate)
-
-    def forward(self, scopes: Tensor, contexts: Tensor, routing: Tensor, padding_mask: Tensor) -> Tensor:
-        scopes = self.dropout(scopes)
-        contexts = self.dropout(contexts)
-        mha_x = self.mha(scopes, contexts, contexts, padding_mask, routing)
         mha_x = self.ln_mha(mha_x)
 
         ffn_x = self.ffn(mha_x)
@@ -74,11 +53,7 @@ class TypeEncoder(Module):
 
         return token_embeddings
 
-    def forward(self, token_embeddings: Tensor, padding_mask: Tensor) -> Tensor:
-        num_scopes, num_entries, num_tokens, dim = token_embeddings.shape
-        token_mask = padding_mask.flatten(0, 1).unsqueeze(-2).repeat(1, num_tokens, 1)
-        type_mask = padding_mask.any(-1).unsqueeze(-2).repeat(1, num_entries, 1)
-
+    def forward(self, token_embeddings: Tensor, token_mask: Tensor, type_mask: Tensor) -> Tensor:
         for step in range(self.num_iters):
             token_embeddings = self.step(token_embeddings, token_mask, type_mask, step)
         return token_embeddings[:, :, 0]
