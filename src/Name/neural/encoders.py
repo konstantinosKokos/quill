@@ -14,7 +14,7 @@ class EncoderLayer(Module):
 
     def forward(self, encoder_input: Tensor, padding_mask: Tensor) -> Tensor:
         encoder_input = self.dropout(encoder_input)
-        mha_x = self.mha(encoder_input, encoder_input, encoder_input, padding_mask, None)
+        mha_x = self.mha(encoder_input, encoder_input, encoder_input, padding_mask)
         mha_x = self.dropout(mha_x)
         mha_x = encoder_input + mha_x
         mha_x = self.ln_mha(mha_x)

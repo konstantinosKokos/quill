@@ -56,7 +56,7 @@ class RMSNorm(Module):
         return x / norm.clamp(min=self.eps) * self.g
 
 
-def routed_attention(queries: Tensor, keys: Tensor, values: Tensor, mask: Tensor) -> Tensor:
+def atn_fn(queries: Tensor, keys: Tensor, values: Tensor, mask: Tensor) -> Tensor:
     dk, num_heads = keys.shape[-2:]
     dividend = torch.sqrt(torch.tensor(dk, device=queries.device, dtype=torch.float))
 
@@ -82,6 +82,6 @@ class MHA(Module):
         qs = self.q_transformation(queries).view(queries.shape[0], queries.shape[1], -1, self.num_heads)
         ks = self.k_transformation(keys).view(keys.shape[0], keys.shape[1], -1, self.num_heads)
         vs = self.v_transformation(values).view(values.shape[0], values.shape[1], -1, self.num_heads)
-        mha = routed_attention(qs, ks, vs, mask)
+        mha = atn_fn(qs, ks, vs, mask)
         mha = self.dropout(mha)
         return self.wo(mha)
