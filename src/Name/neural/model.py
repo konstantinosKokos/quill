@@ -1,3 +1,5 @@
+import pdb
+
 import torch
 from torch import Tensor
 from .embedding import TokenEncoder
@@ -26,8 +28,7 @@ class Model(Module):
                 tree_mask: Tensor,
                 edge_index: Tensor) -> Tensor:
 
-        type_reprs = self.embed(dense_batch, token_mask, tree_mask)
-        # scope_reprs = type_reprs[edge_index[0]]
-        # goal_reprs = type_reprs[edge_index[1]]
-        # pair_reprs = torch.cat((scope_reprs, goal_reprs), -1)
-        # return self.predictor(pair_reprs)
+        type_reprs = self.embed(dense_batch, token_mask, tree_mask).flatten(0, 1)
+        scope_ids, goal_ids = edge_index
+        features = torch.cat((type_reprs[scope_ids], type_reprs[goal_ids]), dim=-1)
+        return self.predictor(features)
