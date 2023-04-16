@@ -20,7 +20,8 @@ class Model(Module):
               token_mask: Tensor,
               type_mask: Tensor) -> Tensor:
         token_embeddings = self.token_encoder.forward(dense_batch)
-        return self.type_encoder.forward(token_embeddings, token_mask, type_mask)
+        type_embeddings, token_embeddings = self.type_encoder.forward(token_embeddings, token_mask, type_mask)
+        return type_embeddings
 
     def forward(self,
                 dense_batch: Tensor,

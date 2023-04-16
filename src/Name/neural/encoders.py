@@ -53,7 +53,7 @@ class TypeEncoder(Module):
 
         return token_embeddings
 
-    def forward(self, token_embeddings: Tensor, token_mask: Tensor, type_mask: Tensor) -> Tensor:
+    def forward(self, token_embeddings: Tensor, token_mask: Tensor, type_mask: Tensor) -> tuple[Tensor, Tensor]:
         for step in range(self.num_iters):
             token_embeddings = self.step(token_embeddings, token_mask, type_mask, step)
-        return token_embeddings[:, :, 0]
+        return token_embeddings[:, :, 0], token_embeddings
