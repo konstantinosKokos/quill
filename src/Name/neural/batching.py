@@ -38,12 +38,15 @@ def make_collator(cast_to: device = device('cpu'),
         padded_batches = pad_to_length(padded_trees, most_trees, [padding] * most_tokens)
 
         dense_batch = torch.tensor(padded_batches)
-        token_padding_mask = (dense_batch != torch.tensor(padding)).all(dim=-1)
-        tree_padding_mask = token_padding_mask.any(dim=-1).unsqueeze(-2).expand(-1, most_trees, -1)
-        goal_mask = (dense_batch[:, :, :, -1] != goal_id).all(-1)
-        diag_mask = torch.eye(most_trees, dtype=torch.bool).unsqueeze(0).expand(num_scopes, -1, -1)
+
+        token_padding_mask = (dense_batch != torch.tensor(padding)).any(dim=-1)
         token_attention_mask = token_padding_mask.flatten(0, 1).unsqueeze(-2).expand(-1, most_tokens, -1)
-        tree_attention_mask = tree_padding_mask & (goal_mask.unsqueeze(-1) | diag_mask)
+
+        tree_padding_mask = token_padding_mask.any(dim=-1)
+        is_goal = (dense_batch[:, :, :, -1] == goal_id).all(dim=-1) * tree_padding_mask
+        scope_attention_mask = ~is_goal.unsqueeze(-2).expand(-1, most_trees, -1)
+        diag_mask = torch.eye(most_trees, dtype=torch.bool).unsqueeze(0).expand(num_scopes, -1, -1)
+        tree_attention_mask = scope_attention_mask | (diag_mask & tree_padding_mask)
 
         return (dense_batch.permute(-1, 0, 1, 2).to(cast_to),
                 token_attention_mask.to(cast_to),
