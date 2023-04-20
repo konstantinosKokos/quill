@@ -68,7 +68,7 @@ class TokenEncoder(Module):
                  num_leaves: int,
                  dim: int,
                  max_scope_size: int = 1000,
-                 max_db_size: int = 20):
+                 max_db_size: int = 50):
         super(TokenEncoder, self).__init__()
         self.num_leaves = num_leaves
         self.num_ops = num_ops

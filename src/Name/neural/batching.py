@@ -2,8 +2,18 @@ import pdb
 
 import torch
 from torch import Tensor, device
-from ..data.tokenization import TokenizedSample
+from ..data.tokenization import TokenizedSample, TokenizedFile, TokenizedTree, DeBruijn
 from .utils import pad_to_length
+from random import sample
+from math import ceil
+from typing import Callable, TypeVar
+
+
+_T = TypeVar('_T')
+
+
+def permute(xs: list[_T]) -> list[_T]:
+    return sample(xs, len(xs))
 
 
 def make_collator(cast_to: device = device('cpu'),
@@ -41,3 +51,33 @@ def make_collator(cast_to: device = device('cpu'),
                 torch.tensor(edge_index).t().to(cast_to),
                 torch.tensor(gold_labels).to(cast_to))
     return collator
+
+
+class Sampler:
+    def __init__(self, data: list[TokenizedFile], max_types: int, max_tokens: int, max_db: int):
+        def filter_tree(tree: TokenizedTree) -> bool:
+            return len(tree) <= max_tokens and all([index < max_db for nt, index, _, _ in tree if nt == 4])
+
+        def filter_hole(hole: tuple[TokenizedTree, list[int]]) -> bool:
+            tree, goal = hole
+            return filter_tree(tree) and any(index != -1 for index in goal)
+
+        def filter_file(file: TokenizedFile) -> bool:
+            scope, holes = file
+            return len(scope) <= max_types and all(map(filter_tree, scope)) and len(holes) > 0
+
+        filtered = [(scope, [hole for hole in holes if filter_hole(hole)]) for scope, holes in data]
+        self.filtered = [file for file in filtered if filter_file(file)]
+        print(f'Kept {len(self.filtered)} of {len(data)} files,'
+              f' and {sum(len(hs) for _, hs in self.filtered)} of {sum(len(hs) for _, hs in data)} holes.')
+        self.indices = [(i, list(range(len(self.filtered[i][1])))) for i in range(len(self.filtered))]
+
+    def iter(self, batch_size: int):
+        perm_indices = [(scope_idx, permute(hole_ids)) for scope_idx, hole_ids in self.indices]
+        epoch_indices = [(scope_idx, hole_ids[batch_size * j:min(batch_size * (j + 1), len(hole_ids))])
+                         for scope_idx, hole_ids in perm_indices
+                         for j in range(0, ceil(len(hole_ids) / batch_size))]
+        epoch_indices = permute(epoch_indices)
+        for scope_idx, hole_ids in epoch_indices:
+            batch = [(self.filtered[scope_idx][0], [self.filtered[scope_idx][1][h] for h in hole_ids])]
+            yield batch
