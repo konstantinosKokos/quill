@@ -1,3 +1,5 @@
+import pdb
+
 import torch
 from torch import Tensor, device
 from ..data.tokenization import TokenizedSample, TokenizedFile, TokenizedTree
@@ -42,7 +44,7 @@ def make_collator(cast_to: device = device('cpu'),
         edge_index = [(scope_index, goal_index)
                       for scope_range, goal_range in zip(scope_ranges, goal_ranges)
                       for goal_index in goal_range for scope_index in scope_range]
-        gold_labels = [i in refs for scope, holes in samples for i in range(len(scope)) for _, refs in holes]
+        gold_labels = [i in refs for scope, holes in samples for _, refs in holes for i in range(len(scope))]
 
         padded_trees = [pad_to_length(batch, most_tokens, padding) for batch in trees]
         padded_batches = pad_to_length(padded_trees, most_trees, [padding] * most_tokens)
