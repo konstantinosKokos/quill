@@ -3,55 +3,48 @@ import pdb
 import torch
 from torch import Tensor, device
 from ..data.tokenization import TokenizedSample, TokenizedFile, TokenizedTree
-from .utils import pad_to_length
-from random import sample
+from .utils import sublists, permute, select
 from math import ceil
-from typing import TypeVar, Iterator
+from typing import Iterator
 from itertools import groupby
-
-
-_T = TypeVar('_T')
-
-
-def permute(xs: list[_T]) -> list[_T]:
-    return sample(xs, len(xs))
-
-
-def select(xs: list[_T], ids: list[int]) -> list[_T]:
-    return [xs[i] for i in ids]
-
-
-def sublists(xs: list[_T], of_size: int) -> list[list[_T]]:
-    return [xs[i:i+of_size] for i in range(0, len(xs), of_size)]
+from torch.nn.functional import pad as _pad
+from torch.nn.utils.rnn import pad_sequence as _pad_sequence
 
 
 def make_collator(cast_to: device = device('cpu'),
                   goal_id: int = -1,
-                  padding: tuple[int, int, int, int] = (-1, -1, -1, -1)):
-    def _tensor(xs) -> Tensor:
+                  padding: int = -1):
+    def _longt(xs) -> Tensor:
         return torch.tensor(xs, device=cast_to, dtype=torch.long)
+
+    def _boolt(xs) -> Tensor:
+        return torch.tensor(xs, device=cast_to, dtype=torch.bool)
+
+    def pad_tree(tree: TokenizedTree, to: int) -> Tensor:
+        return _pad(_longt(tree), pad=(0, 0, 0, to - len(tree)), mode='constant', value=padding)
+
+    def pad_seq(file: list[Tensor]) -> Tensor:
+        return _pad_sequence(file, batch_first=True, padding_value=padding)
 
     def collator(samples: list[TokenizedSample]) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
         num_scopes = len(samples)
-        most_trees = max(len(scope) + len(holes) for scope, holes in samples)
-        trees = [scope + [goal_type for goal_type, _ in holes] for scope, holes in samples]
-        most_tokens = max(max(len(tree) for tree in batch) for batch in trees)
+        scope_sizes, goal_sizes = zip(*[(len(scope), len(holes)) for scope, holes in samples])
+        most_trees = max(x+y for x, y in zip(scope_sizes, goal_sizes))
+        trees = [[*scope, *[goal_type for goal_type, _ in holes]] for scope, holes in samples]
+        most_tokens = max(max(len(tree) for tree in file) for file in trees)
 
-        trees_per_sample, goals_per_sample = zip(*[(len(scope), len(holes)) for scope, holes in samples])
-        scope_ranges = [range((start := i * most_trees), start + offset) for i, offset in enumerate(trees_per_sample)]
-        goal_ranges = [range(scope_range.stop, scope_range.stop + num_goals)
-                       for scope_range, num_goals in zip(scope_ranges, goals_per_sample)]
-        edge_index = [(scope_index, goal_index)
-                      for scope_range, goal_range in zip(scope_ranges, goal_ranges)
-                      for goal_index in goal_range for scope_index in scope_range]
-        gold_labels = [i in refs for scope, holes in samples for _, refs in holes for i in range(len(scope))]
+        scope_ranges = [range((start := i * most_trees), start + offset) for i, offset in enumerate(scope_sizes)]
+        goal_ranges = [range((start := scope_range.stop), start + num_goals)
+                       for scope_range, num_goals in zip(scope_ranges, goal_sizes)]
+        source_index = [torch.arange(scope_range.start, scope_range.stop, device=cast_to).repeat(num_goals)
+                        for scope_range, num_goals in zip(scope_ranges, goal_sizes)]
+        target_index = [torch.arange(goal_range.start, goal_range.stop, device=cast_to).repeat_interleave(scope_size)
+                        for goal_range, scope_size in zip(goal_ranges, scope_sizes)]
+        edge_index = torch.stack((torch.cat(source_index), torch.cat(target_index)))
+        gold_labels = _boolt([i in refs for scope, holes in samples for _, refs in holes for i in range(len(scope))])
+        dense_batch = pad_seq([pad_seq([pad_tree(tree, most_tokens) for tree in file]) for file in trees])
 
-        padded_trees = [pad_to_length(batch, most_tokens, padding) for batch in trees]
-        padded_batches = pad_to_length(padded_trees, most_trees, [padding] * most_tokens)
-
-        dense_batch = _tensor(padded_batches)
-
-        token_padding_mask = (dense_batch != _tensor(padding)).any(dim=-1)
+        token_padding_mask = (dense_batch != padding).any(dim=-1)
         token_attention_mask = token_padding_mask.flatten(0, 1).unsqueeze(-2).expand(-1, most_tokens, -1)
 
         tree_padding_mask = token_padding_mask.any(dim=-1)
@@ -62,8 +55,8 @@ def make_collator(cast_to: device = device('cpu'),
         return (dense_batch.permute(-1, 0, 1, 2),
                 token_attention_mask,
                 tree_attention_mask,
-                _tensor(edge_index).t(),
-                _tensor(gold_labels))
+                edge_index,
+                gold_labels)
     return collator
 
 
@@ -84,19 +77,20 @@ class Sampler:
         self.filtered = [file for file in filtered if filter_file(file)]
         print(f'Kept {len(self.filtered)} of {len(data)} files,'
               f' and {sum(len(hs) for _, hs in self.filtered)} of {sum(len(hs) for _, hs in data)} holes.')
-        self.indices = [(i, list(range(len(self.filtered[i][1])))) for i in range(len(self.filtered))]
+        self.hole_counts = [len(holes) for _, holes in self.filtered]
         self.max_types = max_types
 
-    def iter(self, batch_size: int, num_holes: int, apply_permutation: bool = False) -> Iterator[list[TokenizedSample]]:
-        permuted_holes = [(scope_idx, permute(hole_ids)) for scope_idx, hole_ids in self.indices]
-        epoch_indices = [(scope_idx, selection)
-                         for scope_idx, phs in permuted_holes
-                         for selection in sublists(phs, num_holes)]
+    def iter(self, batch_size_s: int, batch_size_h: int) -> Iterator[list[TokenizedSample]]:
+        permuted_holes = [permute(list(range(nhs))) for nhs in self.hole_counts]
+        epoch_indices = [(s_idx, selection)
+                         for s_idx, phs in enumerate(permuted_holes)
+                         for selection in sublists(phs, batch_size_h)]
         epoch_indices = permute(epoch_indices)
-        for b in range(ceil(len(epoch_indices) / batch_size)):
-            batch_indices = epoch_indices[batch_size * b:min(batch_size * (b + 1), len(epoch_indices))]
+        for b in range(ceil(len(epoch_indices) / batch_size_s)):
+            batch_indices = epoch_indices[batch_size_s * b:min(batch_size_s * (b + 1), len(epoch_indices))]
             batch_indices = [(scope_id, [hole for _, holes in items for hole in holes])
                              for scope_id, items
                              in groupby(sorted(batch_indices, key=lambda x: x[0]), key=lambda x: x[0])]
             yield [(self.filtered[scope_idx][0], select(self.filtered[scope_idx][1], hole_ids))
                    for scope_idx, hole_ids in batch_indices]
+1
