@@ -2,20 +2,60 @@ import torch
 from opt_einsum import contract
 from torch import Tensor
 from torch.nn import Module, Parameter, Linear, Dropout
-from torch.nn.utils.rnn import pad_sequence as _pad_sequence
-from typing import TypeVar
+from typing import TypeVar, Callable
+from warnings import warn
+from math import cos, radians
+from random import sample
 
 _T = TypeVar('_T')
 
 
-def pad_sequence(xs: list[Tensor], padding_value: float) -> Tensor:
-    return _pad_sequence(xs, batch_first=True, padding_value=padding_value)
+def permute(xs: list[_T]) -> list[_T]:
+    return sample(xs, len(xs))
 
 
-def pad_to_length(xs: list[list[_T]], pad_to: int, value: _T) -> list[list[_T]]:
-    if any(len(x) > pad_to for x in xs):
-        raise ValueError
-    return [x + ([value] * (pad_to - len(x))) for x in xs]
+def select(xs: list[_T], ids: list[int]) -> list[_T]:
+    return [xs[i] for i in ids]
+
+
+def sublists(xs: list[_T], of_size: int) -> list[list[_T]]:
+    return [xs[i:i+of_size] for i in range(0, len(xs), of_size)]
+
+
+def make_schedule(warmup_steps: int,
+                  total_steps: int,
+                  warmdown_steps: int,
+                  max_lr: float,
+                  min_lr: float) -> Callable[[int], float]:
+    linear_schedule = make_linear_schedule(warmup_steps, max_lr)
+    cosine_schedule = make_cosine_schedule(warmdown_steps, max_lr, min_lr)
+
+    def schedule(step: int) -> float:
+        if step < warmup_steps:
+            return linear_schedule(step)
+        elif step < total_steps - warmdown_steps:
+            return max_lr
+        elif step > total_steps:
+            warn(f"Step is greater than total steps")
+            return min_lr
+        return cosine_schedule(step - (total_steps - warmdown_steps))
+    return schedule
+
+
+def make_linear_schedule(warmup_steps: int, max_lr: float) -> Callable[[int], float]:
+    def linear_schedule(step: int) -> float:
+        if step < warmup_steps:
+            return step / warmup_steps * max_lr
+        return max_lr
+    return linear_schedule
+
+
+def make_cosine_schedule(decay_steps: int, max_lr: float, min_lr: float) -> Callable[[int], float]:
+    def cosine_schedule(step: int) -> float:
+        if step <= decay_steps:
+            return min_lr + (max_lr - min_lr) * (cos(radians(step / decay_steps * 180)) + 1) / 2
+        return min_lr
+    return cosine_schedule
 
 
 def swish(x: Tensor, b: int = 1) -> Tensor:
