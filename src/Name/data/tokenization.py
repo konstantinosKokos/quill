@@ -3,12 +3,11 @@ from .internal import AgdaTree, DontCare, DeBruijn, Reference, OpNames, agda_to_
 from .tree import enumerate_nodes, flatten
 
 
-TokenizedNode = tuple[int, int, int, int]
+TokenizedNode = tuple[int, int, int, int]  # node_type, node_value, node_position, tree_id
 TokenizedTree = list[TokenizedNode]
 TokenizedTrees = list[TokenizedTree]
 TokenizedSample = tuple[TokenizedTrees, list[tuple[TokenizedTree, list[int]]]]
 TokenizedFile = TokenizedSample
-SOS: TokenizedNode = (0, 0, 0, 0)
 
 
 def tokenize_node(node: tuple[Reference | DeBruijn | DontCare | OpNames, int],
@@ -36,7 +35,8 @@ def tokenize_tree(agda_tree: AgdaTree, tree_index: int) -> TokenizedTree:
     # given an agda tree, yields its nods in the form of (token_type, token_value, token_pos, tree_pos) in BFT
     flat: list[tuple[Reference | DeBruijn | DontCare | OpNames, int]]
     flat = flatten(enumerate_nodes(agda_tree))
-    return [SOS] + [tokenize_node((content, idx), tree_index) for content, idx in flat if content != DontCare.Abs]
+    sos = [(0, 0, 0, tree_index)]
+    return sos + [tokenize_node((content, idx), tree_index) for content, idx in flat if content != DontCare.Abs]
 
 
 def detokenize_tree(nodes: TokenizedTree) -> AgdaTree:
@@ -47,7 +47,6 @@ def tokenize_file(file: File[int]) -> TokenizedFile:
     scope: list[TokenizedTree]
     scope = [tokenize_tree(agda_to_tree(declaration.type), i) for i, declaration in enumerate(file.scope)]
     goals: list[tuple[TokenizedTree, list[int]]]
-    # todo: deal with positional index of goal type
     goals = [(tokenize_tree(agda_to_tree(hole.goal_type), -1), [ref.name for ref in hole.names_used])
              for hole in file.holes]
     return scope, goals

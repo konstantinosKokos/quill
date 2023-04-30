@@ -26,7 +26,6 @@ class File(Generic[Name]):
 
 @dataclass(unsafe_hash=True)
 class Hole(Generic[Name]):
-    # context: list[Declaration[Name]]
     goal_type: AgdaType[Name]
     goal_term: AgdaType[Name]
     names_used: list[Reference[Name]]  # n.b. scope reference only
@@ -155,9 +154,10 @@ class LevelType(AgdaType[Name]):
         return self
 
 
-def parse_dir(directory: str) -> Iterator[File[str]]:
+def parse_dir(directory: str, must_contain: str | None = None) -> Iterator[File[str]]:
     for file in listdir(directory):
-        yield parse_file(path.join(directory, file))
+        if must_contain is None or must_contain in file:
+            yield parse_file(path.join(directory, file))
 
 
 def parse_file(filepath: str) -> File[str]:
@@ -220,14 +220,18 @@ def parse_head(head_json: dict) -> Reference | DeBruijn:
     return Reference(name) if (name := head_json.get('Left')) is not None else DeBruijn(int(head_json.get('Right')))
 
 
+def merge_scopes(file: File[str], extras: list[Declaration]) -> File[str]:
+    expanded = [*extras, *[entry for entry in file.scope if entry not in extras]]
+    return File(scope=expanded, holes=file.holes, name=file.name)
+
+
 def enum_references(file: File[str]) -> File[int]:
-    # todo: deal with missing scope entries
-    name_to_index = defaultdict(lambda: 0,
-                                {declaration.name: idx + 1 for idx, declaration in enumerate(file.scope)})
+    name_to_index = defaultdict(lambda: -1,
+                                {declaration.name: idx for idx, declaration in enumerate(file.scope)})
     return File(name=file.name,
-                scope=[Declaration(name=index,
+                scope=[Declaration(name=name_to_index[declaration.name],
                                    type=declaration.type.substitute(name_to_index))
-                       for index, declaration in enumerate(file.scope)],
+                       for declaration in file.scope],
                 holes=[Hole(goal_type=hole.goal_type.substitute(name_to_index),
                             goal_term=hole.goal_term.substitute(name_to_index),
                             names_used=[name.substitute(name_to_index) for name in hole.names_used])
