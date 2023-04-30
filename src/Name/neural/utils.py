@@ -2,6 +2,7 @@ import torch
 from opt_einsum import contract
 from torch import Tensor
 from torch.nn import Module, Parameter, Linear, Dropout
+from torch.nn.utils.rnn import pad_sequence as _pad_sequence
 from typing import TypeVar, Callable
 from warnings import warn
 from math import cos, radians
@@ -58,6 +59,10 @@ def make_cosine_schedule(decay_steps: int, max_lr: float, min_lr: float) -> Call
     return cosine_schedule
 
 
+def pad_sequence(xs: list[Tensor], padding_value: float) -> Tensor:
+    return _pad_sequence(xs, batch_first=True, padding_value=padding_value)
+
+
 def swish(x: Tensor, b: int = 1) -> Tensor:
     return x * torch.sigmoid(b * x)
 
@@ -74,9 +79,9 @@ class Swish(Module):
 class SwiGLU(Module):
     def __init__(self, input_dim: int, interm_dim: int, output_dim: int):
         super(SwiGLU, self).__init__()
-        self.w_in = Linear(input_dim, interm_dim)
-        self.v = Linear(input_dim, interm_dim)
-        self.w_out = Linear(interm_dim, output_dim)
+        self.w_in = Linear(input_dim, interm_dim, bias=False)
+        self.v = Linear(input_dim, interm_dim, bias=False)
+        self.w_out = Linear(interm_dim, output_dim, bias=False)
 
     def forward(self, x: Tensor) -> Tensor:
         interm = self.w_in(x)
