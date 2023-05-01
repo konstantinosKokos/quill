@@ -1,19 +1,20 @@
 from __future__ import annotations
 
+import pdb
+
 import torch
 from torch import Tensor
 from .utils import pad_sequence
-from torch.nn import Module, Parameter, Embedding, Conv1d, Sequential, ReLU
+from torch.nn import Module, Parameter, Embedding
 from torch.nn.functional import linear
 from torch.nn.init import normal_ as normal
-from torch.nn.utils.parametrizations import orthogonal
+from torch.nn.utils.parametrizations import orthogonal as orth_param
 
 
 class BinaryPathEncoder(Module):
     def __init__(self, dim: int):
         super().__init__()
         self.primitives: Parameter = Parameter(normal(torch.empty(2, dim, dim)))
-        # todo: change the identity depending on how the positional encodings are used
         self.identity: Parameter = Parameter(torch.ones(dim).unsqueeze(0), requires_grad=False)
         self.dim: int = dim
 
@@ -40,7 +41,7 @@ class BinaryPathEncoder(Module):
 
     @staticmethod
     def orthogonal(dim: int) -> BinaryPathEncoder:
-        return orthogonal(BinaryPathEncoder(dim), name='primitives', orthogonal_map='matrix_exp')  # type: ignore
+        return orth_param(BinaryPathEncoder(dim), name='primitives', orthogonal_map='cayley')  # type: ignore
 
 
 class SequentialPositionEncoder(Module):
@@ -62,49 +63,49 @@ class SequentialPositionEncoder(Module):
         return embeddings.view(*positions.shape, self.dim)
 
 
-class TokenEncoder(Module):
+class TokenEmbedder(Module):
     def __init__(self,
                  num_ops: int,
                  num_leaves: int,
                  dim: int,
-                 max_scope_size: int = 1000,
-                 max_db_size: int = 50):
-        super(TokenEncoder, self).__init__()
+                 max_scope_size: int = 250,
+                 max_db_index: int = 50):
+        super(TokenEmbedder, self).__init__()
         self.num_leaves = num_leaves
         self.num_ops = num_ops
         self.max_scope_size = max_scope_size
-        self.max_db_size = max_db_size
-        self.fixed_embeddings = Embedding(num_embeddings=num_ops+num_leaves, embedding_dim=dim)
-        self.path_encoder = BinaryPathEncoder.orthogonal(dim)
-        self.reference_encoder = Embedding(max_scope_size + 1, dim, padding_idx=0)
-        self.db_encoder = SequentialPositionEncoder(dim, freq=max_db_size)
-        self.channel_conv = Sequential(Conv1d(in_channels=3, out_channels=6, kernel_size=1),
-                                       ReLU(),
-                                       Conv1d(in_channels=6, out_channels=1, kernel_size=1))
+        self.max_db_size = max_db_index
+        # ops, leaves, [sos], [ref], [oos], [mask]
+        self.fixed_embeddings = Embedding(num_embeddings=num_ops+num_leaves+4, embedding_dim=dim // 2)
+        self.path_encoder = BinaryPathEncoder.orthogonal(dim // 2)
+        self.db_encoder = SequentialPositionEncoder(dim // 2, freq=max_db_index)
 
-    def forward(self, dense_batch: Tensor) -> Tensor:
+    def forward(self, dense_batch: Tensor) -> tuple[Tensor, Tensor, Tensor]:
         token_types, token_values, node_positions, tree_positions = dense_batch
+        num_scopes, num_entries, _ = token_types.shape
 
-        pad_mask = token_types == -1
         sos_mask = token_types == 0
         op_mask = token_types == 1
         leaf_mask = token_types == 2
-        ref_mask = token_types == 3
+        ref_mask = (token_types == 3) & (token_values != -1)
+        oos_mask = (token_types == 3) & (token_values == -1)
         db_mask = token_types == 4
-        goal_mask = tree_positions == -1 & (~pad_mask)
+        lm_mask = token_types == 5
 
         path_embeddings = self.path_encoder.forward(*node_positions.unique(return_inverse=True))
-        tree_embeddings = self.reference_encoder(tree_positions.clamp(min=0, max=self.max_scope_size))
-        tree_embeddings[goal_mask] = self.reference_encoder.weight[-1]
 
         content_embeddings = torch.zeros_like(path_embeddings)
-        content_embeddings[sos_mask] = self.fixed_embeddings(token_values[sos_mask])
-        content_embeddings[op_mask] = self.fixed_embeddings(token_values[op_mask] + 1)
-        content_embeddings[leaf_mask] = self.fixed_embeddings(token_values[leaf_mask] + self.num_ops + 1)
-        content_embeddings[ref_mask] = self.reference_encoder(token_values[ref_mask])
-        content_embeddings[db_mask] = self.db_encoder(token_values[db_mask])
+        content_embeddings[sos_mask] = self.fixed_embeddings.weight[0]
+        content_embeddings[op_mask] = self.fixed_embeddings.forward(token_values[op_mask] + 1)
+        content_embeddings[leaf_mask] = self.fixed_embeddings.forward(token_values[leaf_mask] + self.num_ops + 1)
+        content_embeddings[ref_mask] = self.fixed_embeddings.weight[-3]
+        content_embeddings[oos_mask] = self.fixed_embeddings.weight[-2]
+        content_embeddings[lm_mask] = self.fixed_embeddings.weight[-1]
+        content_embeddings[db_mask] = self.db_encoder.forward(token_values[db_mask])
 
-        out = torch.stack((content_embeddings, path_embeddings, tree_embeddings), -2)
-        (num_scopes, num_types, num_tokens, _, _) = out.shape
-        out = out.flatten(0, 2)
-        return self.channel_conv(out).squeeze(1).view(num_scopes, num_types, num_tokens, -1)
+        offset_references = (torch.arange(0, num_scopes, device=token_values.device) * num_entries).view(-1, 1, 1)
+        offset_references = token_values + offset_references
+
+        token_embeddings = torch.cat((content_embeddings, path_embeddings), -1)
+
+        return token_embeddings, ref_mask, offset_references[ref_mask]
