@@ -1,3 +1,5 @@
+import pdb
+
 import torch
 from opt_einsum import contract
 from torch import Tensor
@@ -106,7 +108,7 @@ def atn_fn(queries: Tensor, keys: Tensor, values: Tensor, mask: Tensor) -> Tenso
     dividend = torch.sqrt(torch.tensor(dk, device=queries.device, dtype=torch.float))
 
     weights = contract('bidh,bodh->bioh', queries, keys) / dividend
-    weights = weights.masked_fill_(mask.unsqueeze(-1), value=-1e10)
+    weights = weights.masked_fill_((~mask).unsqueeze(-1), value=-1e10)
     weights = weights.softmax(dim=-2)
     return torch.einsum('bioh,bodh->bidh', weights, values).flatten(-2)
 
