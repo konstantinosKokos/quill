@@ -5,15 +5,15 @@ from torch import Tensor, device
 from ..data.tokenization import TokenizedSample, TokenizedFile, TokenizedTree
 from .utils import sublists, permute, select, pad_sequence
 from math import ceil
-from typing import Iterator
+from typing import Iterator, Callable
 from itertools import groupby
 from torch.nn.functional import pad as _pad
 
+EightTensors = tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]
+
 
 def make_collator(cast_to: device = device('cpu'),
-                  pad_value: int = -1,
-                  lm_chance: float = 0.,
-                  lm_value: int = 5):
+                  pad_value: int = -1,) -> Callable[[list[TokenizedSample], float], EightTensors]:
     def _longt(xs) -> Tensor:
         return torch.tensor(xs, device=cast_to, dtype=torch.long)
 
@@ -26,8 +26,7 @@ def make_collator(cast_to: device = device('cpu'),
     def pad_seq(file: list[Tensor]) -> Tensor:
         return pad_sequence(file, padding_value=pad_value)
 
-    def collator(samples: list[TokenizedSample]) \
-            -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
+    def collator(samples: list[TokenizedSample], lm_chance: float) -> EightTensors:
         num_scopes = len(samples)
         scope_sizes, goal_sizes = zip(*[(len(scope), len(holes)) for scope, holes in samples])
         most_trees = max(x+y for x, y in zip(scope_sizes, goal_sizes))
@@ -46,7 +45,7 @@ def make_collator(cast_to: device = device('cpu'),
         dense_batch = pad_seq([pad_seq([pad_tree(tree, most_tokens) for tree in file]) for file in trees])
 
         token_padding_mask = (dense_batch != pad_value).any(dim=-1)
-        token_attention_mask = token_padding_mask.flatten(0, 1).unsqueeze(-2).expand(-1, most_tokens, -1)
+        token_attention_mask = token_padding_mask.flatten(0, 1)
 
         tree_padding_mask = token_padding_mask.any(dim=-1)
 
@@ -57,7 +56,7 @@ def make_collator(cast_to: device = device('cpu'),
         masked_refs[:, 0] = 5
         masked_refs[:, 1] = 0
         dense_batch.masked_scatter_(lm_mask.unsqueeze(-1), masked_refs)
-        batch_pointers = torch.arange(0, num_scopes, device=cast_to) * torch.ones_like(token_padding_mask)
+        batch_pointers = torch.arange(0, num_scopes, device=cast_to).view(-1, 1, 1) * torch.ones_like(token_padding_mask)
         batch_pointers = batch_pointers[lm_mask]
 
         # is_goal = (dense_batch[:, :, :, -1] == goal_id).all(dim=-1) & tree_padding_mask
@@ -77,9 +76,9 @@ def make_collator(cast_to: device = device('cpu'),
 
 
 class Sampler:
-    def __init__(self, data: list[TokenizedFile], max_types: int, max_tokens: int, max_db: int):
+    def __init__(self, data: list[TokenizedFile], max_scope_size: int, max_type_size: int, max_db_index: int):
         def filter_tree(tree: TokenizedTree) -> bool:
-            return len(tree) <= max_tokens and all([index < max_db for nt, index, _, _ in tree if nt == 4])
+            return len(tree) <= max_type_size and all([index < max_db_index for nt, index, _, _ in tree if nt == 4])
 
         def filter_hole(hole: tuple[TokenizedTree, list[int]]) -> bool:
             tree, goal = hole
@@ -87,14 +86,14 @@ class Sampler:
 
         def filter_file(file: TokenizedFile) -> bool:
             scope, holes = file
-            return len(scope) <= max_types and all(map(filter_tree, scope)) and len(holes) > 0
+            return len(scope) <= max_scope_size and all(map(filter_tree, scope)) and len(holes) > 0
 
         filtered = [(scope, [hole for hole in holes if filter_hole(hole)]) for scope, holes in data]
         self.filtered = [file for file in filtered if filter_file(file)]
         print(f'Kept {len(self.filtered)} of {len(data)} files,'
               f' and {sum(len(hs) for _, hs in self.filtered)} of {sum(len(hs) for _, hs in data)} holes.')
         self.hole_counts = [len(holes) for _, holes in self.filtered]
-        self.max_types = max_types
+        self.max_types = max_scope_size
 
     def itersize(self, batch_size_s: int, batch_size_h: int) -> int:
         return ceil(sum([ceil(len(holes)/batch_size_h) for _, holes in self.filtered])/batch_size_s)

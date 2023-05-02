@@ -1,5 +1,3 @@
-import pdb
-
 import torch
 from opt_einsum import contract
 from torch import Tensor
@@ -66,7 +64,24 @@ def pad_sequence(xs: list[Tensor], padding_value: float) -> Tensor:
 
 
 def swish(x: Tensor, b: int = 1) -> Tensor:
-    return x * torch.sigmoid(b * x)
+    gate = torch.sigmoid(b * x)
+    return x * gate
+
+
+def binary_stats(predictions: list[bool], truths: list[bool]) -> tuple[int, int, int, int]:
+    tp = sum([x == y for x, y in zip(predictions, truths) if y])
+    fn = sum([x != y for x, y in zip(predictions, truths) if y])
+    tn = sum([x == y for x, y in zip(predictions, truths) if not y])
+    fp = sum([x != y for x, y in zip(predictions, truths) if not y])
+    return tp, fn, tn, fp
+
+
+def macro_binary_stats(tp: int, fn: int, tn: int, fp: int) -> tuple[float, float, float, float]:
+    prec = tp / (tp + fp + 1e-08)
+    rec = tp / (tp + fn + 1e-08)
+    f1 = 2 * prec * rec / (prec + rec + 1e-08)
+    accuracy = (tp + tn) / (tp + fn + tn + fp)
+    return accuracy, f1, prec, rec
 
 
 class Swish(Module):
@@ -108,9 +123,24 @@ def atn_fn(queries: Tensor, keys: Tensor, values: Tensor, mask: Tensor) -> Tenso
     dividend = torch.sqrt(torch.tensor(dk, device=queries.device, dtype=torch.float))
 
     weights = contract('bidh,bodh->bioh', queries, keys) / dividend
-    weights = weights.masked_fill_((~mask).unsqueeze(-1), value=-1e10)
+    weights = weights.masked_fill_((~mask[:, None, :, None]), value=-1e10)
     weights = weights.softmax(dim=-2)
     return torch.einsum('bioh,bodh->bidh', weights, values).flatten(-2)
+
+
+def lin_atn_fn(queries: Tensor, keys: Tensor, values: Tensor, mask: Tensor) -> Tensor:
+    d_atn, num_heads = queries.shape[-2:]
+    queries = queries / d_atn
+
+    mask = mask[:, :, None, None]
+    keys = keys.masked_fill(~mask, 0)
+    values = values.masked_fill(~mask, 0)
+
+    queries = queries.softmax(dim=-2)
+    keys = keys.softmax(dim=-3)
+
+    context = contract('bnkh,bnvh->bkvh', keys, values)
+    return contract('bnkh,bkvh->bnvh', queries, context).flatten(-2)
 
 
 class MHA(Module):
@@ -132,3 +162,37 @@ class MHA(Module):
         mha = atn_fn(qs, ks, vs, mask)
         mha = self.dropout(mha)
         return self.wo(mha)
+
+
+class LinearMHA(Module):
+    def __init__(self, num_heads: int, dim: int, d_atn: int, dropout_rate: float = 0.1):
+        super(LinearMHA, self).__init__()
+        self.num_heads = num_heads
+        if (dim % num_heads != 0) or (d_atn % num_heads != 0):
+            raise ValueError('dim must be divisible by num_heads')
+        self.q_transformation = Linear(in_features=dim, out_features=d_atn * num_heads, bias=False)
+        self.k_transformation = Linear(in_features=dim, out_features=d_atn * num_heads, bias=False)
+        self.v_transformation = Linear(in_features=dim, out_features=dim, bias=False)
+        self.wo = Linear(in_features=dim, out_features=dim, bias=False)
+        self.dropout = Dropout(dropout_rate)
+
+    def forward(self, queries: Tensor, keys: Tensor, values: Tensor, mask: Tensor) -> Tensor:
+        qs = self.q_transformation(queries).view(queries.shape[0], queries.shape[1], -1, self.num_heads)
+        ks = self.k_transformation(keys).view(keys.shape[0], keys.shape[1], -1, self.num_heads)
+        vs = self.v_transformation(values).view(values.shape[0], values.shape[1], -1, self.num_heads)
+        mha = lin_atn_fn(qs, ks, vs, mask)
+        mha = self.dropout(mha)
+        return self.wo(mha)
+
+
+class ResidualFFN(Module):
+    def __init__(self, dim: int, intermediate: int, dropout_rate: float):
+        super(ResidualFFN, self).__init__()
+        self.pre_norm = RMSNorm(dim)
+        self.ffn = SwiGLU(dim, intermediate, dim)
+        self.dropout = Dropout(dropout_rate)
+
+    def forward(self, x: Tensor) -> Tensor:
+        norm = self.pre_norm(x)
+        ffn = self.ffn(norm)
+        return ffn + norm
