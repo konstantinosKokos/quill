@@ -1,3 +1,5 @@
+import pdb
+
 from .reader import File
 from .internal import AgdaTree, DontCare, DeBruijn, Reference, OpNames, agda_to_tree
 from .tree import enumerate_nodes, flatten

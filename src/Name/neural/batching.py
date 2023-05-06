@@ -1,5 +1,3 @@
-import pdb
-
 import torch
 from torch import Tensor, device
 from ..data.tokenization import TokenizedSample, TokenizedFile, TokenizedTree
@@ -8,12 +6,37 @@ from math import ceil
 from typing import Iterator, Callable
 from itertools import groupby
 from torch.nn.functional import pad as _pad
+from random import random
+from itertools import takewhile
 
-EightTensors = tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]
+NineTensors = tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]
+
+
+def filter_unreferenced(file: TokenizedFile, negative_sampling: float) -> TokenizedFile:
+    scope, goals = file
+
+    def refers_to(tree: TokenizedTree, excluding: set[int]) -> set[int]:
+        direct = {tv for tt, tv, _, _ in tree if tt == 3 and tv not in excluding}
+        excluding |= direct
+        return {indirect
+                for reference in direct
+                for indirect in refers_to(scope[reference], excluding)} | direct
+
+    def rename(tree: TokenizedTree, using: dict[int, int]) -> TokenizedTree:
+        return [(tt, using[tv] if tt == 3 else tv, np, using[tp]) for tt, tv, np, tp in tree]
+
+    all_references = set.union(*[refers_to(tree, set()) for tree in [*scope, *[goal_type for goal_type, _ in goals]]])
+    all_references |= {ref for _, names_used in goals for ref in names_used}
+    removed = [idx for idx in range(len(scope)) if idx not in all_references or random() > negative_sampling]
+    renames = {kept: kept - sum(map(lambda _: 1, takewhile(lambda r: r < kept, removed))) for kept in range(len(scope))}
+    renames[-1] = -1
+    return ([rename(tree, renames) for idx, tree in enumerate(scope) if idx not in removed],
+            [(rename(goal_type, renames), [renames[ref] for ref in names_used]) for goal_type, names_used in goals])
 
 
 def make_collator(cast_to: device = device('cpu'),
-                  pad_value: int = -1,) -> Callable[[list[TokenizedSample], float], EightTensors]:
+                  pad_value: int = -1,
+                  goal_id: int = -1) -> Callable[[list[TokenizedSample], float, float], NineTensors]:
     def _longt(xs) -> Tensor:
         return torch.tensor(xs, device=cast_to, dtype=torch.long)
 
@@ -26,7 +49,9 @@ def make_collator(cast_to: device = device('cpu'),
     def pad_seq(file: list[Tensor]) -> Tensor:
         return pad_sequence(file, padding_value=pad_value)
 
-    def collator(samples: list[TokenizedSample], lm_chance: float) -> EightTensors:
+    def collator(samples: list[TokenizedSample], lm_chance: float, negative_sampling: float) -> NineTensors:
+        # samples = [filter_unreferenced(sample, negative_sampling) for sample in samples]
+
         num_scopes = len(samples)
         scope_sizes, goal_sizes = zip(*[(len(scope), len(holes)) for scope, holes in samples])
         most_trees = max(x+y for x, y in zip(scope_sizes, goal_sizes))
@@ -58,15 +83,15 @@ def make_collator(cast_to: device = device('cpu'),
         dense_batch.masked_scatter_(lm_mask.unsqueeze(-1), masked_refs)
         batch_pointers = torch.arange(0, num_scopes, device=cast_to).view(-1, 1, 1) * torch.ones_like(token_padding_mask)
         batch_pointers = batch_pointers[lm_mask]
-
-        # is_goal = (dense_batch[:, :, :, -1] == goal_id).all(dim=-1) & tree_padding_mask
-        # scope_attention_mask = (~is_goal & tree_padding_mask).unsqueeze(-2).expand(-1, most_trees, -1)
-        # diag_mask = torch.eye(most_trees, dtype=torch.bool, device=cast_to).unsqueeze(0).expand(num_scopes, -1, -1)
-        # tree_attention_mask = scope_attention_mask | (diag_mask & tree_padding_mask.unsqueeze(-1))
+        
+        is_goal = (dense_batch[:, :, :, -1] == goal_id).all(dim=-1) & tree_padding_mask
+        scope_attention_mask = (~is_goal & tree_padding_mask).unsqueeze(-2).expand(-1, most_trees, -1)
+        diag_mask = torch.eye(most_trees, dtype=torch.bool, device=cast_to).unsqueeze(0).expand(num_scopes, -1, -1)
+        tree_attention_mask = scope_attention_mask | (diag_mask & tree_padding_mask.unsqueeze(-1))
         return (dense_batch.permute(-1, 0, 1, 2),
                 token_attention_mask,
                 tree_padding_mask,
-                # tree_attention_mask,
+                tree_attention_mask,
                 edge_index,
                 gold_labels,
                 lm_mask,

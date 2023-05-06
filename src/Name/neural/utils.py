@@ -3,6 +3,7 @@ from opt_einsum import contract
 from torch import Tensor
 from torch.nn import Module, Parameter, Linear, Dropout
 from torch.nn.utils.rnn import pad_sequence as _pad_sequence
+from torch.nn.functional import binary_cross_entropy_with_logits
 from typing import TypeVar, Callable
 from warnings import warn
 from math import cos, radians
@@ -84,6 +85,17 @@ def macro_binary_stats(tp: int, fn: int, tn: int, fp: int) -> tuple[float, float
     return accuracy, f1, prec, rec
 
 
+def focal_loss(inputs: Tensor, targets: Tensor, gamma: float) -> Tensor:
+    alpha = sum(targets)/sum(1 - targets)
+    bce_loss = binary_cross_entropy_with_logits(inputs, targets, reduction='none', pos_weight=1/alpha)
+    probs = inputs.sigmoid()
+    mod_p = (1 - probs) ** gamma
+    mod_n = probs ** gamma
+    modulation = torch.where(targets.bool(), mod_p, mod_n)
+    loss = modulation * bce_loss
+    return loss.sum()
+
+
 class Swish(Module):
     def __init__(self, b: int = 1):
         super(Swish, self).__init__()
@@ -119,18 +131,23 @@ class RMSNorm(Module):
 
 
 def atn_fn(queries: Tensor, keys: Tensor, values: Tensor, mask: Tensor) -> Tensor:
-    dk, num_heads = keys.shape[-2:]
+    batch_size, seq_len, dk, num_heads = keys.shape
     dividend = torch.sqrt(torch.tensor(dk, device=queries.device, dtype=torch.float))
 
     weights = contract('bidh,bodh->bioh', queries, keys) / dividend
-    weights = weights.masked_fill_((~mask[:, None, :, None]), value=-1e10)
+
+    if mask.shape == (batch_size, seq_len):
+        mask = mask[:, None, :]
+
+    weights = weights.masked_fill_((~mask[:, :, :, None]), value=-1e10)
     weights = weights.softmax(dim=-2)
     return torch.einsum('bioh,bodh->bidh', weights, values).flatten(-2)
 
 
 def lin_atn_fn(queries: Tensor, keys: Tensor, values: Tensor, mask: Tensor) -> Tensor:
-    d_atn, num_heads = queries.shape[-2:]
-    queries = queries / d_atn
+    _, _, d_atn, _ = queries.shape
+    dividend = torch.sqrt(torch.tensor(d_atn, device=queries.device, dtype=torch.float))
+    queries = queries / dividend
 
     mask = mask[:, :, None, None]
     keys = keys.masked_fill(~mask, 0)
@@ -168,7 +185,7 @@ class LinearMHA(Module):
     def __init__(self, num_heads: int, dim: int, d_atn: int, dropout_rate: float = 0.1):
         super(LinearMHA, self).__init__()
         self.num_heads = num_heads
-        if (dim % num_heads != 0) or (d_atn % num_heads != 0):
+        if (dim % num_heads != 0):
             raise ValueError('dim must be divisible by num_heads')
         self.q_transformation = Linear(in_features=dim, out_features=d_atn * num_heads, bias=False)
         self.k_transformation = Linear(in_features=dim, out_features=d_atn * num_heads, bias=False)

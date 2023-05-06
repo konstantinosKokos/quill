@@ -21,7 +21,7 @@ class BinaryPathEncoder(Module):
     def embed_positions(self, positions: list[int]) -> Tensor:
         # todo: this can be made much more efficient by reusing subsequence maps
         word_seq = [torch.tensor(self.node_pos_to_path(pos), device=self.primitives.device, dtype=torch.long)
-                    if pos > 0 else torch.tensor([])
+                    if pos > 0 else torch.empty(0, device=self.primitives.device, dtype=torch.long)
                     for pos in positions]
         word_ten = pad_sequence(word_seq, padding_value=2)
         maps = self.identity.repeat(len(positions), 1)
@@ -68,21 +68,20 @@ class TokenEmbedder(Module):
                  num_ops: int,
                  num_leaves: int,
                  dim: int,
-                 max_scope_size: int = 250,
                  max_db_index: int = 50):
         super(TokenEmbedder, self).__init__()
         self.num_leaves = num_leaves
         self.num_ops = num_ops
-        self.max_scope_size = max_scope_size
         self.max_db_size = max_db_index
+        self.dim = dim
         # ops, leaves, [sos], [ref], [oos], [mask]
-        self.fixed_embeddings = Embedding(num_embeddings=num_ops+num_leaves+4, embedding_dim=dim // 2)
+        self.fixed_embeddings = Embedding(num_embeddings=num_ops+num_leaves+3, embedding_dim=dim // 2)
         self.path_encoder = BinaryPathEncoder.orthogonal(dim // 2)
         self.db_encoder = SequentialPositionEncoder(dim // 2, freq=max_db_index)
 
     def forward(self, dense_batch: Tensor) -> tuple[Tensor, Tensor, Tensor]:
         token_types, token_values, node_positions, tree_positions = dense_batch
-        num_scopes, num_entries, _ = token_types.shape
+        num_scopes, num_entries, num_tokens = token_types.shape
 
         sos_mask = token_types == 0
         op_mask = token_types == 1
@@ -98,8 +97,8 @@ class TokenEmbedder(Module):
         content_embeddings[sos_mask] = self.fixed_embeddings.weight[0]
         content_embeddings[op_mask] = self.fixed_embeddings.forward(token_values[op_mask] + 1)
         content_embeddings[leaf_mask] = self.fixed_embeddings.forward(token_values[leaf_mask] + self.num_ops + 1)
-        content_embeddings[ref_mask] = self.fixed_embeddings.weight[-3]
-        content_embeddings[oos_mask] = self.fixed_embeddings.weight[-2]
+        content_embeddings[ref_mask] = self.fixed_embeddings.weight[-2]
+        content_embeddings[oos_mask] = self.fixed_embeddings.weight[-1]
         content_embeddings[lm_mask] = self.fixed_embeddings.weight[-1]
         content_embeddings[db_mask] = self.db_encoder.forward(token_values[db_mask])
 

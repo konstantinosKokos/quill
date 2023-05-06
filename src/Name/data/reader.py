@@ -154,58 +154,66 @@ class LevelType(AgdaType[Name]):
         return self
 
 
-def parse_dir(directory: str, must_contain: str | None = None) -> Iterator[File[str]]:
+def parse_dir(directory: str, must_contain: str | None = None, version: str = 'original') -> Iterator[File[str]]:
     for file in listdir(directory):
-        if must_contain is None or must_contain in file:
-            yield parse_file(path.join(directory, file))
+        if (must_contain is None or must_contain in file) and file.endswith('.json'):
+            print(f'Parsing {file}')
+            yield parse_file(path.join(directory, file), version)
 
 
-def parse_file(filepath: str) -> File[str]:
+def parse_file(filepath: str, version: str) -> File[str]:
     with open(filepath, 'r') as f:
-        return parse_data(load(f))
+        return parse_data(load(f), version)
 
 
-def parse_data(data_json: dict) -> File[str]:
+def parse_data(data_json: dict, version: str) -> File[str]:
     return File(name=data_json['scope']['name'],
-                scope=[parse_declaration(d) for d in data_json['scope']['item']],
-                holes=[parse_holes(s) for s in data_json['samples']])
+                scope=[parse_declaration(d, version) for d in data_json['scope']['item']],
+                holes=[parse_holes(s, version) for s in data_json['samples']])
 
 
-def parse_holes(hole_json: dict) -> Hole[str]:
+def parse_holes(hole_json: dict, version: str) -> Hole[str]:
     context_json = hole_json['ctx']['thing']
     goal_type_json = hole_json['goal']
     goal_term_json = hole_json['term']
     goal_names_used = hole_json['namesUsed']
-    context = [Declaration(name=c['name'], type=parse_type(c['item'])) for c in context_json]
+    context = [Declaration(name=c['name'], type=parse_type(c['item'], version)) for c in context_json]
 
     return Hole(
         goal_type=reduce(lambda result, argument: PiType(argument, result),
                          reversed(context),
-                         parse_type(goal_type_json['thing'])),  # type: ignore
-        goal_term=parse_type(goal_term_json['thing']),
+                         parse_type(goal_type_json['thing'], version)),  # type: ignore
+        goal_term=parse_type(goal_term_json['thing']['original'], version),
         names_used=[Reference(name) for name in goal_names_used])
 
 
-def parse_declaration(dec_json: dict) -> Declaration[str]:
-    return Declaration(name=dec_json['name'], type=parse_type(dec_json['item']['thing']))
+def parse_declaration(dec_json: dict, version: str) -> Declaration[str]:
+    return Declaration(name=dec_json['name'], type=parse_type(dec_json['item']['thing'], version))
 
 
-def parse_type(type_json: dict) -> AgdaType[str]:
+def parse_type(type_json: dict, which: str) -> AgdaType[str]:
+    def go(_type_json: dict) -> AgdaType[str]: return parse_type(_type_json, which)
+
+    if which in type_json.keys():
+        if (tmp := type_json[which]) is not None:
+            type_json = tmp
+        else:
+            type_json = type_json['original']
+
     match type_json['tag']:
         case 'Pi':
             left, right = type_json['contents']
             name, type_json = left['name'], left['item']
-            return PiType(argument=(Declaration(name=name, type=parse_type(type_json))
-                                    if name != '_' else parse_type(type_json)),
-                          result=parse_type(right))
+            return PiType(argument=(Declaration(name=name, type=go(type_json)) if name != '_' else go(type_json)),
+                          result=go(right))
         case 'App':
             head, args = type_json['contents']
             head_type = parse_head(head)
-            arg_types = [parse_type(arg) for arg in args]
+            arg_types = [go(arg) for arg in args]
             return reduce(AppType, arg_types, head_type)  # type: ignore
         case 'Lam':
             contents = type_json['contents']
-            return LamType(abstraction=contents['name'], body=parse_type(contents['item']))
+            return LamType(abstraction=contents['name'], body=go(contents['item']))
         case 'Sort':
             return SortType(type_json['contents'].replace(' ', '_'))
         case 'Lit':

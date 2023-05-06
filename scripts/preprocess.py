@@ -4,11 +4,11 @@ import pickle
 
 
 samples = []
-for i, file in enumerate(parse_dir('../stdlib/json')):
+for i, file in enumerate(parse_dir('../stdlib', version='simplified')):
     anonymous = enum_references(file)
     scope, holes = tokenize_file(anonymous)
     if len(holes) != 0:
         samples.append((scope, holes))
 
-with open('../data/tokenized.p', 'wb') as f:
+with open('../data/tokenized_sim.p', 'wb') as f:
     pickle.dump(samples, f)
