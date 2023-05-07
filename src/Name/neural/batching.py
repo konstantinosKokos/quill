@@ -3,13 +3,23 @@ from torch import Tensor, device
 from ..data.tokenization import TokenizedSample, TokenizedFile, TokenizedTree
 from .utils import sublists, permute, select, pad_sequence
 from math import ceil
-from typing import Iterator, Callable
+from typing import Iterator, Callable, NamedTuple
 from itertools import groupby
 from torch.nn.functional import pad as _pad
 from random import random
 from itertools import takewhile
 
-NineTensors = tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]
+
+class Batch(NamedTuple):
+    dense_scopes:       Tensor
+    dense_goals:        Tensor
+    scope_token_mask:   Tensor
+    scope_tree_mask:    Tensor
+    goal_token_mask:    Tensor
+    gold_lemmas:        Tensor | None
+    ref_mask:           Tensor
+    masked_values:      Tensor
+    batch_pts:          Tensor
 
 
 def filter_unreferenced(file: TokenizedFile, negative_sampling: float) -> TokenizedFile:
@@ -36,7 +46,7 @@ def filter_unreferenced(file: TokenizedFile, negative_sampling: float) -> Tokeni
 
 def make_collator(cast_to: device = device('cpu'),
                   pad_value: int = -1,
-                  goal_id: int = -1) -> Callable[[list[TokenizedSample], float, float], NineTensors]:
+                  goal_id: int = -1) -> Callable[[list[TokenizedSample], float, float], Batch]:
     def _longt(xs) -> Tensor:
         return torch.tensor(xs, device=cast_to, dtype=torch.long)
 
@@ -46,57 +56,56 @@ def make_collator(cast_to: device = device('cpu'),
     def pad_tree(tree: TokenizedTree, to: int) -> Tensor:
         return _pad(_longt(tree), pad=(0, 0, 0, to - len(tree)), mode='constant', value=pad_value)
 
+    def pad_goal(goal: list[int], to: int) -> Tensor:
+        return _pad(_longt(goal), pad=(0, to - len(goal)), mode='constant', value=goal[-1])
+
     def pad_seq(file: list[Tensor]) -> Tensor:
         return pad_sequence(file, padding_value=pad_value)
 
-    def collator(samples: list[TokenizedSample], lm_chance: float, negative_sampling: float) -> NineTensors:
-        # samples = [filter_unreferenced(sample, negative_sampling) for sample in samples]
-
+    def collator(samples: list[TokenizedSample], lm_chance: float, negative_sampling: float) -> Batch:
         num_scopes = len(samples)
-        scope_sizes, goal_sizes = zip(*[(len(scope), len(holes)) for scope, holes in samples])
-        most_trees = max(x+y for x, y in zip(scope_sizes, goal_sizes))
-        trees = [[*scope, *[goal_type for goal_type, _ in holes]] for scope, holes in samples]
-        most_tokens = max(max(len(tree) for tree in file) for file in trees)
+        scopes, goals = zip(*[(scope, holes) for scope, holes in samples])
+        most_entries = max(len(scope) for scope in scopes)
+        most_holes = max(len(holes) for holes in goals)
+        most_lemmas = max(max(len(goal) for _, goal in holes) for holes in goals)
+        max_entry_len = max(max(len(tree) for tree in scope) for scope in scopes)
+        max_goal_len = max(max(len(goal_type) for goal_type, _ in holes) for holes in goals)
 
-        scope_ranges = [range((start := i * most_trees), start + offset) for i, offset in enumerate(scope_sizes)]
-        goal_ranges = [range((start := scope_range.stop), start + num_goals)
-                       for scope_range, num_goals in zip(scope_ranges, goal_sizes)]
-        source_index = [torch.arange(scope_range.start, scope_range.stop, device=cast_to).repeat(num_goals)
-                        for scope_range, num_goals in zip(scope_ranges, goal_sizes)]
-        target_index = [torch.arange(goal_range.start, goal_range.stop, device=cast_to).repeat_interleave(scope_size)
-                        for goal_range, scope_size in zip(goal_ranges, scope_sizes)]
-        edge_index = torch.stack((torch.cat(source_index), torch.cat(target_index)))
-        gold_labels = _boolt([i in refs for scope, holes in samples for _, refs in holes for i in range(len(scope))])
-        dense_batch = pad_seq([pad_seq([pad_tree(tree, most_tokens) for tree in file]) for file in trees])
+        # dense input
+        dense_scopes = pad_seq([pad_seq([pad_tree(tree, max_entry_len) for tree in scope]) for scope in scopes])
+        dense_goals = pad_seq([pad_seq([pad_tree(tree, max_goal_len) for tree, _ in holes]) for holes in goals])
 
-        token_padding_mask = (dense_batch != pad_value).any(dim=-1)
-        token_attention_mask = token_padding_mask.flatten(0, 1)
+        # lemma output
+        true_indices = torch.stack([torch.stack([pad_goal(goal, most_lemmas) for _, goal in holes]) for holes in goals])
+        gold_lemmas = torch.zeros(num_scopes, most_holes, most_entries, dtype=torch.bool, device=cast_to)
+        gold_lemmas.scatter_(2, true_indices.long(), True)
 
-        tree_padding_mask = token_padding_mask.any(dim=-1)
+        # masks
+        scope_token_mask = (dense_scopes != pad_value).any(dim=-1)
+        scope_tree_mask = scope_token_mask.any(dim=-1)
+        goal_token_mask = (dense_goals != pad_value).any(dim=-1)
 
-        ref_mask = (dense_batch[:, :, :, 0] == 3) & (dense_batch[:, :, :, 1] != -1)
-        lm_mask = (torch.rand_like(token_padding_mask, dtype=torch.float) < lm_chance) & ref_mask
-        masked_refs = dense_batch[lm_mask]
-        mask_values = dense_batch[lm_mask][:, 1]
+        # LM masking
+        ref_mask = (dense_scopes[:, :, :, 0] == 3) & (dense_scopes[:, :, :, 1] != -1)
+        lm_mask = (torch.rand_like(scope_token_mask, dtype=torch.float) < lm_chance) & ref_mask
+        masked_refs = dense_scopes[lm_mask]
+        masked_values = dense_scopes[lm_mask][:, 1]
         masked_refs[:, 0] = 5
         masked_refs[:, 1] = 0
-        dense_batch.masked_scatter_(lm_mask.unsqueeze(-1), masked_refs)
-        batch_pointers = torch.arange(0, num_scopes, device=cast_to).view(-1, 1, 1) * torch.ones_like(token_padding_mask)
-        batch_pointers = batch_pointers[lm_mask]
-        
-        is_goal = (dense_batch[:, :, :, -1] == goal_id).all(dim=-1) & tree_padding_mask
-        scope_attention_mask = (~is_goal & tree_padding_mask).unsqueeze(-2).expand(-1, most_trees, -1)
-        diag_mask = torch.eye(most_trees, dtype=torch.bool, device=cast_to).unsqueeze(0).expand(num_scopes, -1, -1)
-        tree_attention_mask = scope_attention_mask | (diag_mask & tree_padding_mask.unsqueeze(-1))
-        return (dense_batch.permute(-1, 0, 1, 2),
-                token_attention_mask,
-                tree_padding_mask,
-                tree_attention_mask,
-                edge_index,
-                gold_labels,
-                lm_mask,
-                mask_values,
-                batch_pointers)
+        dense_scopes.masked_scatter_(lm_mask.unsqueeze(-1), masked_refs)
+        batch_pts = torch.arange(0, num_scopes, device=cast_to).view(-1, 1, 1)
+        batch_pts = batch_pts * torch.ones_like(scope_token_mask)
+        batch_pts = batch_pts[lm_mask]
+
+        return Batch(dense_scopes=dense_scopes,
+                     dense_goals=dense_goals,
+                     scope_token_mask=scope_token_mask,
+                     scope_tree_mask=scope_tree_mask,
+                     goal_token_mask=goal_token_mask,
+                     gold_lemmas=gold_lemmas,
+                     ref_mask=ref_mask,
+                     masked_values=masked_values,
+                     batch_pts=batch_pts)
     return collator
 
 
