@@ -1,13 +1,10 @@
-import pdb
-
-from .utils import RMSNorm, LinearMHA, MHA, ResidualFFN
+from .utils.modules import RMSNorm, LinearMHA, MHA, ResidualFFN
 from .embedding import TokenEmbedder
+from .batching import Batch
 from torch import Tensor
 from torch.nn import Module, ModuleList
-from torch.nn.functional import pad
-from torch_scatter import scatter_mean
-
 import torch
+
 
 class EncoderLayer(Module):
     def __init__(self, num_heads: int, dim: int, dropout_rate: float, d_atn: int | None = None):
@@ -37,33 +34,45 @@ class TypeEncoderLayer(Module):
         self.recurrence = ResidualFFN(dim, 4 * dim, dropout_rate)
 
     def forward(self,
-                token_embeddings: Tensor,
-                token_mask: Tensor,
-                tree_mask: Tensor,
-                ref_mask: Tensor,
-                ref_ids: Tensor) -> Tensor:
-        (num_scopes, num_entries, num_tokens, _) = token_embeddings.shape
+                scope_token_embeddings: Tensor, scope_token_mask: Tensor, scope_tree_mask: Tensor,
+                scope_ref_mask: Tensor, scope_ref_ids: Tensor, goal_token_embeddings: Tensor,
+                goal_token_mask: Tensor, goal_ref_mask: Tensor, goal_ref_ids: Tensor, noise: Tensor) -> tuple[Tensor, Tensor]:
+        (num_scopes, num_entries, num_scope_tokens, _) = scope_token_embeddings.shape
+        (_, num_goals, num_goal_tokens, _) = goal_token_embeddings.shape
 
-        # update tokens by their type context
-        token_embeddings = token_embeddings.flatten(0, 1)
-        token_embeddings = self.intra_type.forward(token_embeddings, token_mask)
-        token_embeddings = token_embeddings.unflatten(0, (num_scopes, num_entries))
+        # update tokens by their type context (scopes)
+        scope_token_embeddings = scope_token_embeddings.flatten(0, 1)
+        scope_token_embeddings = self.intra_type.forward(scope_token_embeddings, scope_token_mask)
+        scope_token_embeddings = scope_token_embeddings.unflatten(0, (num_scopes, num_entries))
 
-        # # update types by their scope context
-        update_mask = torch.zeros_like(ref_mask, dtype=torch.bool)
+        # update tokens by their type context (goals)
+        goal_token_embeddings = goal_token_embeddings.flatten(0, 1)
+        goal_token_embeddings = self.intra_type.forward(goal_token_embeddings, goal_token_mask)
+        goal_token_embeddings = goal_token_embeddings.unflatten(0, (num_scopes, num_goals))
+
+        # update types by their scope context
+        update_mask = torch.zeros_like(scope_ref_mask, dtype=torch.bool)
         update_mask[:, :, 0] = True
-        type_summaries = token_embeddings[update_mask].unflatten(0, (num_scopes, num_entries))
-        type_updates = self.inter_type(type_summaries, tree_mask).flatten(0, 1)
-        token_embeddings[update_mask] = type_updates
+        type_updates = scope_token_embeddings[update_mask] + noise.flatten(0, 1)
+        # type_summaries = scope_token_embeddings[update_mask].unflatten(0, (num_scopes, num_entries))
+        # type_updates = self.inter_type(type_summaries, scope_tree_mask).flatten(0, 1)
+        scope_token_embeddings[update_mask] = type_updates
 
-        # update references to types
-        last_ref_reprs = token_embeddings[ref_mask]
-        curr_ref_reprs = type_updates[ref_ids]
-        ref_updates = last_ref_reprs + curr_ref_reprs
-        ref_updates = self.recurrence(ref_updates)
-        token_embeddings[ref_mask] = ref_updates
+        # update references to types (scopes)
+        scope_ref_reprs = scope_token_embeddings[scope_ref_mask]
+        scope_ref_updates = type_updates[scope_ref_ids]
+        scope_ref_updates = scope_ref_reprs + scope_ref_updates
+        scope_ref_updates = self.recurrence(scope_ref_updates)
+        scope_token_embeddings[scope_ref_mask] = scope_ref_updates
 
-        return token_embeddings
+        # update references to types (goals)
+        goal_ref_reprs = goal_token_embeddings[goal_ref_mask]
+        goal_ref_updates = type_updates[goal_ref_ids]
+        goal_ref_updates = goal_ref_reprs + goal_ref_updates
+        goal_ref_updates = self.recurrence(goal_ref_updates)
+        goal_token_embeddings[goal_ref_mask] = goal_ref_updates
+
+        return scope_token_embeddings, goal_token_embeddings
 
 
 class TypeEncoder(Module):
@@ -71,11 +80,22 @@ class TypeEncoder(Module):
         super(TypeEncoder, self).__init__()
         self.layers = ModuleList([TypeEncoderLayer(num_heads, dim, dropout_rate) for _ in range(num_layers)])
 
-    def forward(self, token_embeddings: Tensor, token_mask: Tensor, tree_atn_mask: Tensor,
-                ref_mask: Tensor, ref_ids: Tensor) -> Tensor:
+    def forward(self, scope_token_embeddings: Tensor, scope_token_mask: Tensor, scope_tree_mask: Tensor,
+                scope_ref_mask: Tensor, scope_ref_ids: Tensor, goal_token_embeddings: Tensor,
+                goal_token_mask: Tensor, goal_ref_mask: Tensor, goal_ref_ids: Tensor, noise: Tensor) -> tuple[Tensor, Tensor]:
         for layer in self.layers:
-            token_embeddings = layer.forward(token_embeddings, token_mask, tree_atn_mask, ref_mask, ref_ids)
-        return token_embeddings
+            scope_token_embeddings, goal_token_embeddings = layer.forward(
+                scope_token_embeddings=scope_token_embeddings,
+                scope_token_mask=scope_token_mask,
+                scope_tree_mask=scope_tree_mask,
+                scope_ref_mask=scope_ref_mask,
+                scope_ref_ids=scope_ref_ids,
+                goal_token_embeddings=goal_token_embeddings,
+                goal_token_mask=goal_token_mask,
+                goal_ref_mask=goal_ref_mask,
+                goal_ref_ids=goal_ref_ids,
+                noise=noise)
+        return scope_token_embeddings, goal_token_embeddings
 
 
 class ScopeEncoder(Module):
@@ -88,6 +108,18 @@ class ScopeEncoder(Module):
             max_db_index=max_db_index)
         self.encoder = TypeEncoder(num_layers, 4, dim, 0.1)
 
-    def forward(self, dense_batch: Tensor, token_mask: Tensor, tree_atn_mask: Tensor) -> Tensor:
-        token_embeddings, ref_mask, ref_ids = self.embedder.forward(dense_batch)
-        return self.encoder.forward(token_embeddings, token_mask, tree_atn_mask, ref_mask, ref_ids)
+    def forward(self, batch: Batch) -> tuple[Tensor, Tensor]:
+        scope_token_embeddings = self.embedder.forward(batch.dense_scopes, batch.lm_mask)
+        noise = torch.rand(scope_token_embeddings[:, :, 0].shape)
+        goal_token_embeddings = self.embedder.forward(batch.dense_goals, None)
+        return self.encoder.forward(
+            scope_token_embeddings=scope_token_embeddings,
+            scope_token_mask=batch.scope_token_mask,
+            scope_tree_mask=batch.scope_tree_mask,
+            scope_ref_mask=batch.scope_ref_mask,
+            scope_ref_ids=batch.scope_ref_ids,
+            goal_token_embeddings=goal_token_embeddings,
+            goal_token_mask=batch.goal_token_mask,
+            goal_ref_mask=batch.goal_ref_mask,
+            goal_ref_ids=batch.goal_ref_ids,
+            noise=noise)
