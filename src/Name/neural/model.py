@@ -62,3 +62,9 @@ class Model(Module):
                 (sum(lm_hits), lm_hits.numel()),
                 lemma_loss,
                 lm_loss)
+
+    def save(self, path: str) -> None:
+        torch.save(self.state_dict(), path)
+
+    def load(self, path: str, map_location: str = 'cpu'):
+        self.load_state_dict(torch.load(path, map_location=map_location), strict=True)
