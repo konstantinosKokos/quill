@@ -1,20 +1,17 @@
 import pickle
 
-import sys
-sys.path.extend(['../'])
-
 import torch
 from src.Name.neural.batching import make_collator, Sampler
-from src.Name.neural.training import TrainWrapper
-from src.Name.neural.utils import make_schedule, binary_stats, macro_binary_stats
+from src.Name.neural.model import Model
+from src.Name.neural.utils.schedules import make_schedule
+from src.Name.neural.utils.metrics import binary_stats, macro_binary_stats
 from torch import device as _device
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
 from math import ceil
 
-with open('../data/tokenized.p', 'rb') as f:
+with open('./data/tokenized.p', 'rb') as f:
     tokenized = pickle.load(f)
-
 
 
 dim = 128
@@ -23,23 +20,24 @@ num_layers = 8
 batch_size = 2
 backprop_every = 1
 num_holes = 4
+max_scope_entries = 200
 max_scope_size = 150
-max_type_size = 100
+max_goal_size = 300
 max_db_index = 20
 lm_chance = 0.1
-device = _device('cuda')
+device = _device('cpu')
 dev_split = ceil(len(tokenized) * 0.25)
 
 
-train_sampler = Sampler(tokenized[:-dev_split], max_type_size=max_type_size,
-                        max_scope_size=max_scope_size, max_db_index=max_db_index)
-dev_sampler = Sampler(tokenized[-dev_split:], max_type_size=max_type_size,
-                      max_scope_size=max_scope_size, max_db_index=max_db_index)
+train_sampler = Sampler(tokenized[:-dev_split], max_scope_entries=max_scope_entries,
+                        max_scope_size=max_scope_size, max_goal_size=max_goal_size, max_db_index=max_db_index)
+dev_sampler = Sampler(tokenized[-dev_split:], max_scope_entries=max_scope_entries,
+                      max_scope_size=max_scope_size, max_goal_size=max_goal_size, max_db_index=max_db_index)
 collator = make_collator(device)
 
 epoch_size = train_sampler.itersize(batch_size * backprop_every, num_holes)
 
-model = TrainWrapper(num_layers=num_layers, dim=dim, max_db_index=max_db_index).to(device)
+model = Model(num_layers=num_layers, dim=dim, max_db_index=max_db_index).to(device)
 
 
 opt = AdamW(model.parameters(), lr=1, weight_decay=1e-02)
@@ -51,6 +49,8 @@ scheduler = LambdaLR(opt,
                                    min_lr=1e-7),
                      last_epoch=-1)
 
+best_epoch_loss = None
+
 for epoch_id in range(num_epochs):
     epoch_lemma_loss, epoch_lm_loss = 0, 0
     epoch_lemma_preds, epoch_lemma_correct = [], []
@@ -59,24 +59,23 @@ for epoch_id in range(num_epochs):
     train_epoch = train_sampler.iter(batch_size, num_holes)
     model.train()
 
-    with torch.autograd.set_detect_anomaly(True):
-        for batch_id, batch in enumerate(train_epoch):
-            collated = collator(batch, 0.1, 0.5)
-            lemma_preds, gold_labels, (lm_hits, lm_total), lemma_loss, lm_loss = model.compute_losses(collated)
-            loss = lemma_loss + lm_loss
-            loss.backward()
+    for batch_id, batch in enumerate(train_epoch):
+        collated = collator(batch, 0.1, 0.5)
+        lemma_preds, gold_labels, (lm_hits, lm_total), lemma_loss, lm_loss = model.compute_losses(collated)
+        loss = lemma_loss + lm_loss
+        loss.backward()
 
-            if (batch_id + 1) % backprop_every == 0:
-                opt.step()
-                scheduler.step()
-                opt.zero_grad(set_to_none=True)
+        if (batch_id + 1) % backprop_every == 0:
+            opt.step()
+            scheduler.step()
+            opt.zero_grad(set_to_none=True)
 
-            epoch_lemma_loss += lemma_loss.item()
-            epoch_lm_loss += lm_loss.item()
-            epoch_lemma_preds += lemma_preds
-            epoch_lemma_correct += gold_labels
-            epoch_lm_hits += lm_hits
-            epoch_lm_total += lm_total
+        epoch_lemma_loss += lemma_loss.item()
+        epoch_lm_loss += lm_loss.item()
+        epoch_lemma_preds += lemma_preds
+        epoch_lemma_correct += gold_labels
+        epoch_lm_hits += lm_hits
+        epoch_lm_total += lm_total
 
     print('=' * 64)
     print(f'Epoch {epoch_id}')
@@ -115,3 +114,9 @@ for epoch_id in range(num_epochs):
         print(f'\tDev Recall: {rec:.2f}')
         print(f'\tDev F1: {f1:.2f}')
     print('\n')
+
+    if best_epoch_loss is None or epoch_dev_loss < best_epoch_loss:
+        best_epoch_loss = epoch_dev_loss
+        print('New best, saving...')
+        model.save('./best_weights.pt')
+        print('Saved.')
