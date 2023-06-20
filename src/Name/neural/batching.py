@@ -6,8 +6,7 @@ from typing import Iterator, Callable, NamedTuple, TypeVar
 from itertools import groupby
 from torch.nn.functional import pad as _pad
 from torch.nn.utils.rnn import pad_sequence
-from random import random, sample
-from itertools import takewhile
+from random import sample
 
 
 _T = TypeVar('_T')
@@ -42,43 +41,18 @@ class Batch(NamedTuple):
     masked_values:      Tensor | None
 
 
-def filter_unreferenced(file: TokenizedFile, negative_sampling: float) -> TokenizedFile:
-    scope, goals = file
-
-    def refers_to(tree: TokenizedTree, excluding: set[int]) -> set[int]:
-        direct = {tv for tt, tv, _, _ in tree if tt == 3 and tv not in excluding}
-        excluding |= direct
-        return {indirect
-                for reference in direct
-                for indirect in refers_to(scope[reference], excluding)} | direct
-
-    def rename(tree: TokenizedTree, using: dict[int, int]) -> TokenizedTree:
-        return [(tt, using[tv] if tt == 3 else tv, np, using[tp]) for tt, tv, np, tp in tree]
-
-    all_references = set.union(*[refers_to(tree, set()) for tree in [*scope, *[goal_type for goal_type, _ in goals]]])
-    all_references |= {ref for _, names_used in goals for ref in names_used}
-    removed = [idx for idx in range(len(scope)) if idx not in all_references or random() > negative_sampling]
-    renames = {kept: kept - sum(map(lambda _: 1, takewhile(lambda r: r < kept, removed))) for kept in range(len(scope))}
-    renames[-1] = -1
-    return ([rename(tree, renames) for idx, tree in enumerate(scope) if idx not in removed],
-            [(rename(goal_type, renames), [renames[ref] for ref in names_used]) for goal_type, names_used in goals])
-
-
 def make_collator(cast_to: device = device('cpu'),
-                  pad_value: int = -1) -> Callable[[list[TokenizedSample], float, float], Batch]:
+                  pad_value: int = -1) -> Callable[[list[TokenizedSample], float], Batch]:
     def _longt(xs) -> Tensor:
         return torch.tensor(xs, device=cast_to, dtype=torch.long)
 
     def pad_tree(tree: TokenizedTree, to: int) -> Tensor:
         return _pad(_longt(tree), pad=(0, 0, 0, to - len(tree)), mode='constant', value=pad_value)
 
-    def pad_goal(goal: list[int], to: int) -> Tensor:
-        return _pad(_longt(goal), pad=(0, to - len(goal)), mode='constant', value=goal[-1])
-
     def pad_array(file: list[Tensor]) -> Tensor:
         return pad_sequence(file, padding_value=pad_value, batch_first=True)
 
-    def collator(samples: list[TokenizedSample], lm_chance: float, negative_sampling: float) -> Batch:
+    def collator(samples: list[TokenizedSample], lm_chance: float) -> Batch:
         num_scopes = len(samples)
         scopes, holes = zip(*[(scope, holes) for scope, holes in samples])
         scope_lens = [len(scope) for scope in scopes]

@@ -60,7 +60,7 @@ for epoch_id in range(num_epochs):
     model.train()
 
     for batch_id, batch in enumerate(train_epoch):
-        collated = collator(batch, 0.1, 0.5)
+        collated = collator(batch, 0.1)
         lemma_preds, gold_labels, (lm_hits, lm_total), lemma_loss, lm_loss = model.compute_losses(collated)
         loss = lemma_loss + lm_loss
         loss.backward()
@@ -99,7 +99,7 @@ for epoch_id in range(num_epochs):
 
     with torch.no_grad():
         for file in dev_sampler.filtered:
-            lemma_preds, gold_labels, _, lemma_loss, _ = model.compute_losses(collator([file], 0.0, 1))
+            lemma_preds, gold_labels, _, lemma_loss, _ = model.compute_losses(collator([file], 0.0))
             epoch_dev_loss += lemma_loss.item()
 
             epoch_lemma_preds += lemma_preds
