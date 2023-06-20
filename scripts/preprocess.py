@@ -5,7 +5,7 @@ import pickle
 
 samples = []
 for i, file in enumerate(parse_dir('../stdlib', version='simplified')):
-    anonymous = enum_references(file)
+    anonymous, _ = enum_references(file)
     scope, holes = tokenize_file(anonymous)
     if len(holes) != 0:
         samples.append((scope, holes))

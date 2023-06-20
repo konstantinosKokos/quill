@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import pdb
 from json import load
 from os import listdir, path
 from dataclasses import dataclass
@@ -32,10 +31,6 @@ class Hole(Generic[Name]):
 
     def __repr__(self) -> str:
         return f'\t{self.goal_term} : {self.goal_type}'
-        # ctx = '\n'.join(f'\t{c}' for c in self.context)
-        # g_term = f'\t{self.goal_term} : {self.goal_type}'
-        # names = f'{self.names_used}'
-        # return f'{ctx}\n\n{g_term}\n\t{names}\n' + ('-' * 64)
 
 
 class AgdaType(ABC, Generic[Name]):
@@ -233,14 +228,16 @@ def merge_scopes(file: File[str], extras: list[Declaration]) -> File[str]:
     return File(scope=expanded, holes=file.holes, name=file.name)
 
 
-def enum_references(file: File[str]) -> File[int]:
-    name_to_index = defaultdict(lambda: -1,
-                                {declaration.name: idx for idx, declaration in enumerate(file.scope)})
-    return File(name=file.name,
-                scope=[Declaration(name=name_to_index[declaration.name],
-                                   type=declaration.type.substitute(name_to_index))
-                       for declaration in file.scope],
-                holes=[Hole(goal_type=hole.goal_type.substitute(name_to_index),
-                            goal_term=hole.goal_term.substitute(name_to_index),
-                            names_used=[name.substitute(name_to_index) for name in hole.names_used])
-                       for hole in file.holes])
+def enum_references(file: File[str]) -> tuple[File[int], dict[int, Name]]:
+    name_to_index = defaultdict(lambda: -1, {declaration.name: idx for idx, declaration in enumerate(file.scope)})
+    index_to_name = {v: k for k, v in name_to_index.items()}
+    return (
+        File(name=file.name,
+             scope=[Declaration(name=name_to_index[declaration.name], type=declaration.type.substitute(name_to_index))
+                    for declaration in file.scope],
+             holes=[Hole(goal_type=hole.goal_type.substitute(name_to_index),
+                         goal_term=hole.goal_term.substitute(name_to_index),
+                         names_used=[name.substitute(name_to_index) for name in hole.names_used])
+                    for hole in file.holes]),
+        index_to_name
+    )
