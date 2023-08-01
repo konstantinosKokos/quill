@@ -1,7 +1,7 @@
 """
  Processes the Agda2Train extraction JSON into human-readable format.
 """
-
+import pdb
 from functools import reduce
 
 
@@ -51,6 +51,13 @@ def beautify_term(term_json: dict) -> dict:
                     'codomain': beautify_term(codomain)}
         case 'App':
             head, args = term_json['contents']
+            if head == {'Left': '⊕'}:
+                return {'tag': 'ADT',
+                        'variants': [beautify_term(arg) for arg in args]}
+            if head == {'Left': '⊙'}:
+                return {'tag': 'Constructor',
+                        'name': args[0]['contents'][0]['Left'],
+                        'variant': args[1]['contents']}
             return {'tag': 'App',
                     'head': beautify_head(head),
                     'arguments': [beautify_term(arg) for arg in args]}
