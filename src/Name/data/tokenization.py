@@ -1,56 +1,57 @@
-from .reader import File
-from .internal import AgdaTree, DontCare, DeBruijn, Reference, OpNames, agda_to_tree
-from .tree import enumerate_nodes, flatten
+from .agda.syntax import File, Declaration, Hole, Reference
+from .internal.term_to_tree import AgdaTree, BinaryOps, UnaryOps, NullaryOps, term_to_tree
+from .internal.tree import flatten, enumerate_nodes
+
+TokenizedNode = tuple[int, int, int, int]
+TokenizedAST = list[TokenizedNode]
 
 
-TokenizedNode = tuple[int, int, int, int]  # node_type, node_value, node_position, tree_id
-TokenizedTree = list[TokenizedNode]
-TokenizedTrees = list[TokenizedTree]
-TokenizedSample = tuple[TokenizedTrees, list[tuple[TokenizedTree, list[int]]]]
-TokenizedFile = TokenizedSample
-
-
-def tokenize_node(node: tuple[Reference | DeBruijn | DontCare | OpNames, int],
-                  tree_index: int) -> TokenizedNode:
-    content, position = node
+def tokenize_node(content: BinaryOps | tuple[UnaryOps, int] | NullaryOps,
+                  node_idx: int,
+                  tree_idx: int) -> TokenizedNode:
     match content:
-        case OpNames(): return 1, content.value, position, tree_index
-        case DontCare(): return 2, content.value, position, tree_index
-        case Reference(name): return 3, name, position, tree_index
-        case DeBruijn(index): return 4, index, position, tree_index
+        case BinaryOps(op): return 1, op, node_idx, tree_idx
+        case NullaryOps(op): return 2, op, node_idx, tree_idx
+        case (UnaryOps(op), value): return 3 + op, value, node_idx, tree_idx
         case _: raise ValueError
 
 
-def detokenize_node(node: tuple[int, int]) -> Reference | DeBruijn | DontCare | OpNames:
+def detokenize_node(node: tuple[int, int]) -> BinaryOps | tuple[UnaryOps, int] | NullaryOps:
     match node:
-        case 1, value: return OpNames(value)
-        case 2, value: return DontCare(value)
-        case 3, value: return Reference(value)
-        case 4, value: return DeBruijn(value)
+        case 1, value: return BinaryOps(value)
+        case 2, value: return NullaryOps(value)
+        case op, value: return UnaryOps(op - 3), value
         case _: raise ValueError
 
 
-def tokenize_tree(agda_tree: AgdaTree, tree_index: int) -> TokenizedTree:
-    # todo: deal with [sos] token
-    # given an agda tree, yields its nods in the form of (token_type, token_value, token_pos, tree_pos) in BFT
-    flat: list[tuple[Reference | DeBruijn | DontCare | OpNames, int]]
-    flat = flatten(enumerate_nodes(agda_tree))
-    sos = [(0, 0, 0, tree_index)]
-    return sos + [tokenize_node((content, idx), tree_index) for content, idx in flat if content != DontCare.Abs]
+def tokenize_ast(ast: AgdaTree, tree_index: int) -> TokenizedAST:
+    flat = flatten(enumerate_nodes(ast))
+    return [(0, 0, 0, tree_index),
+            *[tokenize_node(content, idx, tree_index) for content, idx in flat if content != NullaryOps.Abs]]
 
 
-def detokenize_tree(nodes: TokenizedTree) -> AgdaTree:
+def detokenize_ast(nodes: TokenizedAST) -> AgdaTree:
     raise NotImplementedError
 
 
-def tokenize_file(file: File[int]) -> TokenizedFile:
-    scope: list[TokenizedTree]
-    scope = [tokenize_tree(agda_to_tree(declaration.type), i) for i, declaration in enumerate(file.scope)]
-    goals: list[tuple[TokenizedTree, list[int]]]
-    goals = [(tokenize_tree(agda_to_tree(hole.goal_type), -1), [ref.name for ref in hole.names_used])
-             for hole in file.holes]
-    return scope, goals
+def tokenize_file(file: File[int]) -> tuple[list[tuple[TokenizedAST, TokenizedAST]],
+                                            list[tuple[TokenizedAST, TokenizedAST, list[int]]]]:
+    scope = [(tokenize_ast(term_to_tree(entry.type), i),
+              tokenize_ast(term_to_tree(entry.definition), i)) for i, entry in enumerate(file.scope)]
+    holes = [(tokenize_ast(term_to_tree(hole.type), -1),
+              tokenize_ast(term_to_tree(hole.definition), -1),
+              [premise.name for premise in hole.premises]) for hole in file.holes]
+    return scope, holes
 
 
-def detokenize_file(*args, **kwargs) -> File[int]:
-    raise NotImplementedError
+def detokenize_file(file: tuple[list[tuple[TokenizedAST, TokenizedAST]],
+                                list[tuple[TokenizedAST, TokenizedAST, list[int]]]],
+                    name: str) -> File[int]:
+    tokenized_scope, tokenized_holes = file
+    return File(scope=[Declaration(name=i, type=detokenize_ast(type_ast), definition=detokenize_ast(def_ast))
+                       for i, (type_ast, def_ast) in tokenized_scope],
+                holes=[Hole(type=detokenize_ast(type_ast),
+                            definition=detokenize_ast(def_ast),
+                            premises=[Reference(p) for p in premises])
+                       for type_ast, def_ast, premises in tokenized_holes],
+                name=name)

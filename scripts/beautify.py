@@ -2,7 +2,6 @@
  Processes the Agda2Train extraction JSON into human-readable format.
 """
 from functools import reduce
-from json import load
 
 
 def beautify_file(file_json: dict) -> dict:
