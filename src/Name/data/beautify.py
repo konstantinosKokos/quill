@@ -1,13 +1,14 @@
 """
  Processes the Agda2Train extraction JSON into human-readable format.
 """
-import pdb
 from functools import reduce
+from json import load
 
 
 def beautify_file(file_json: dict) -> dict:
-    return {'scope': beautify_scope(file_json['scope']),
-            'goals': [beautify_hole(hole) for hole in file_json['samples']]}
+    return {'name': file_json['scope']['name'],
+            'scope': beautify_scope(file_json['scope']),
+            'holes': [beautify_hole(hole) for hole in file_json['samples']]}
 
 
 def beautify_scope(scope_json: dict) -> dict:
@@ -22,7 +23,7 @@ def beautify_scope_entry(entry_json: dict) -> dict:
 
 def beautify_hole(hole_json: dict) -> dict:
     return {'definition': beautify_top_term(hole_json['term']),
-            'type': {'pretty': hole_json['ctx']['pretty'],
+            'type': {'pretty': f'{hole_json["ctx"]["pretty"]} → {hole_json["goal"]["pretty"]}',
                      'term': reduce(lambda result, argument:
                                     {'tag': 'Pi',
                                      'name': argument['name'],
@@ -37,7 +38,7 @@ def beautify_top_term(term_json: dict) -> dict:
     inner = term_json['thing']
     if 'original' in inner:
         inner = inner['original']
-    return {'pretty': term_json['pretty'],
+    return {'pretty': term_json['pretty'].replace('"', ''),
             'term': beautify_term(inner)}
 
 
@@ -56,15 +57,15 @@ def beautify_term(term_json: dict) -> dict:
                         'variants': [beautify_term(arg) for arg in args]}
             if head == {'Left': '⊙'}:
                 return {'tag': 'Constructor',
-                        'name': args[0]['contents'][0]['Left'],
+                        'reference': args[0]['contents'][0]['Left'],
                         'variant': args[1]['contents']}
-            return {'tag': 'App',
+            return {'tag': 'Application',
                     'head': beautify_head(head),
                     'arguments': [beautify_term(arg) for arg in args]}
         case 'Lam':
-            return {'tag': 'Lam',
+            return {'tag': 'Lambda',
                     'body': beautify_term(term_json['contents']['item']),
-                    'abstraction': term_json['contents']['name']}
+                    'abstraction': term_json['contents']['name'].replace('"', '')}
         case 'Sort':
             return {'tag': 'Sort',
                     'sort': term_json['contents']}

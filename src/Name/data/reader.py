@@ -5,7 +5,7 @@ from os import listdir, path
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from functools import reduce
-from typing import Generic, TypeVar, Any, Iterator
+from typing import Generic, TypeVar, Any, Iterator, Optional
 from typing_extensions import Self
 from collections import defaultdict
 
@@ -25,15 +25,15 @@ class File(Generic[Name]):
 
 @dataclass(unsafe_hash=True)
 class Hole(Generic[Name]):
-    goal_type: AgdaType[Name]
-    goal_term: AgdaType[Name]
-    names_used: list[Reference[Name]]  # n.b. scope reference only
+    type: AgdaTerm[Name]
+    definition: AgdaTerm[Name]
+    premises: list[Reference[Name]]  # n.b. scope reference only
 
     def __repr__(self) -> str:
-        return f'\t{self.goal_term} : {self.goal_type}'
+        return f'\t{self.definition} : {self.type}'
 
 
-class AgdaType(ABC, Generic[Name]):
+class AgdaTerm(ABC, Generic[Name]):
     @abstractmethod
     def __repr__(self) -> str: ...
     @abstractmethod
@@ -41,66 +41,68 @@ class AgdaType(ABC, Generic[Name]):
 
 
 @dataclass(unsafe_hash=True)
-class Declaration(AgdaType[Name]):
+class Declaration(AgdaTerm[Name]):
     name: Name
-    type: AgdaType[Name]
+    type: AgdaTerm[Name]
+    definition: AgdaTerm[Name]
 
-    def __repr__(self) -> str: return f'{self.name} :: {self.type}'
+    def __repr__(self) -> str: return f'{self.name} :: {self.type}\n{self.name} = {self.definition}'
 
     def substitute(self, names: dict[Name, Other]) -> Declaration[Other]:
-        return Declaration(names[self.name], self.type.substitute(names))
+        return Declaration(names[self.name], self.type.substitute(names), self.definition.substitute(names))
 
 
-def strip_name(type_or_declaration: AgdaType | Declaration) -> AgdaType:
+def strip_name(type_or_declaration: AgdaTerm | Declaration) -> AgdaTerm:
     return type_or_declaration.type if isinstance(type_or_declaration, Declaration) else type_or_declaration
 
 
-Telescope = tuple[Declaration, ...]
-
-
 @dataclass(unsafe_hash=True)
-class PiType(AgdaType[Name]):
-    argument: AgdaType[Name] | Declaration[Name]
-    result: AgdaType[Name]
+class PiTerm(AgdaTerm[Name]):
+    domain: AgdaTerm[Name]
+    codomain: AgdaTerm[Name]
+    name: Optional[Name]
 
     def __repr__(self) -> str:
-        arg_repr = f'({self.argument})' if isinstance(self.argument, (Declaration, PiType)) else f'{self.argument}'
-        return f'{arg_repr} -> {self.result}'
-
-    def substitute(self, names: dict[Name, Other]) -> PiType[Other]:
-        if isinstance(self.argument, Declaration):
-            argument = Declaration(self.argument.name, self.argument.type.substitute(names))
+        if self.name is not None:
+            dom_repr = f'({self.name} : {self.domain})'
+        elif isinstance(self.domain, PiTerm):
+            dom_repr = f'({self.domain})'
         else:
-            argument = self.argument.substitute(names)
-        return PiType(argument, self.result.substitute(names))
+            dom_repr = f'{self.domain}'
+        return f'{dom_repr} -> {self.codomain}'
+
+    def substitute(self, names: dict[Name, Other]) -> PiTerm[Other]:
+        return PiTerm(domain=self.domain.substitute(names),
+                      codomain=self.codomain.substitute(names),
+                      name=None if self.name is None else names[self.name])
 
 
 @dataclass(unsafe_hash=True)
-class LamType(AgdaType[Name]):
+class LamTerm(AgdaTerm[Name]):
     abstraction: Any
-    body: AgdaType[Name]
+    body: AgdaTerm[Name]
 
     def __repr__(self) -> str: return f'λ{self.abstraction}.{self.body}'
 
-    def substitute(self, names: dict[Name, Other]) -> LamType[Other]:
-        return LamType(self.abstraction, self.body.substitute(names))
+    def substitute(self, names: dict[Name, Other]) -> LamTerm[Other]:
+        return LamTerm(self.abstraction, self.body.substitute(names))
 
 
 @dataclass(unsafe_hash=True)
-class AppType(AgdaType[Name]):
+class AppTerm(AgdaTerm[Name]):
     head: Reference[Name] | DeBruijn
-    argument: AgdaType[Name]
+    argument: AgdaTerm[Name]
 
     def __repr__(self) -> str:
-        arg_repr = f'({self.argument})' if isinstance(self.argument, AppType) else f'{self.argument}'
+        arg_repr = f'({self.argument})' if isinstance(self.argument, AppTerm) else f'{self.argument}'
         return f'{self.head} {arg_repr}'
 
-    def substitute(self, names: dict[Name, Other]) -> AppType[Other]:
-        return AppType(self.head.substitute(names), self.argument.substitute(names))
+    def substitute(self, names: dict[Name, Other]) -> AppTerm[Other]:
+        return AppTerm(self.head.substitute(names), self.argument.substitute(names))
 
 
 @dataclass(unsafe_hash=True)
-class Reference(AgdaType[Name]):
+class Reference(AgdaTerm[Name]):
     name: Name
 
     def __repr__(self) -> str: return f'{self.name}'
@@ -110,7 +112,7 @@ class Reference(AgdaType[Name]):
 
 
 @dataclass(unsafe_hash=True)
-class DeBruijn(AgdaType[Name]):
+class DeBruijn(AgdaTerm[Name]):
     index: int
 
     def __repr__(self) -> str: return f'@{self.index}'
@@ -120,124 +122,127 @@ class DeBruijn(AgdaType[Name]):
 
 
 @dataclass(unsafe_hash=True)
-class LitType(AgdaType[Name]):
+class LitTerm(AgdaTerm[Name]):
     content: Any
 
     def __repr__(self) -> str: return f'{self.content}'
 
-    def substitute(self, names: dict[Name, Other]) -> LitType[Other]:
+    def substitute(self, names: dict[Name, Other]) -> LitTerm[Other]:
         return self
 
 
 @dataclass(unsafe_hash=True)
-class SortType(AgdaType[Name]):
+class SortTerm(AgdaTerm[Name]):
     content: Any
 
     def __repr__(self) -> str: return f'{self.content}'
 
-    def substitute(self, names: dict[Name, Other]) -> SortType[Other]:
+    def substitute(self, names: dict[Name, Other]) -> SortTerm[Other]:
         return self
 
 
 @dataclass(unsafe_hash=True)
-class LevelType(AgdaType[Name]):
+class LevelTerm(AgdaTerm[Name]):
     content: Any
 
     def __repr__(self) -> str: return f'{self.content}'
 
-    def substitute(self, names: dict[Name, Other]) -> LevelType[Other]:
+    def substitute(self, names: dict[Name, Other]) -> LevelTerm[Other]:
         return self
 
 
-def parse_dir(directory: str, must_contain: str | None = None, version: str = 'original') -> Iterator[File[str]]:
+@dataclass(unsafe_hash=True)
+class ADTTerm(AgdaTerm[Name]):
+    variants: tuple[AgdaTerm[Name], ...]
+
+    def __repr__(self) -> str: return ' | '.join(f'{var}' for var in self.variants)
+
+    def substitute(self, names: dict[Name, Other]) -> ADTTerm[Other]:
+        return ADTTerm(tuple(variant.substitute(names) for variant in self.variants))
+
+
+@dataclass(unsafe_hash=True)
+class Constructor(AgdaTerm[Name]):
+    reference: Reference
+    variant: int
+
+    def __repr__(self) -> str: return f'{self.reference}[{self.variant}]'
+
+    def substitute(self, names: dict[Name, Other]) -> Constructor[Other]:
+        return Constructor(self.reference.substitute(names), self.variant)
+
+
+def parse_dir(directory: str, must_contain: str | None = None) -> Iterator[File[str]]:
     for file in listdir(directory):
         if (must_contain is None or must_contain in file) and file.endswith('.json'):
             print(f'Parsing {file}')
-            yield parse_file(path.join(directory, file), version)
+            yield parse_file(path.join(directory, file))
 
 
-def parse_file(filepath: str, version: str) -> File[str]:
+def parse_file(filepath: str) -> File[str]:
     with open(filepath, 'r') as f:
-        return parse_data(load(f), version)
+        return parse_data(load(f))
 
 
-def parse_data(data_json: dict, version: str) -> File[str]:
-    return File(name=data_json['scope']['name'],
-                scope=[parse_declaration(d, version) for d in data_json['scope']['item']],
-                holes=[parse_holes(s, version) for s in data_json['samples']])
+def parse_data(data_json: dict) -> File[str]:
+    return File(name=data_json['name'],
+                scope=[parse_declaration(d) for d in data_json['scope']['entries']],
+                holes=[parse_hole(h) for h in data_json['holes']])
 
 
-def parse_holes(hole_json: dict, version: str) -> Hole[str]:
-    context_json = hole_json['ctx']['thing']
-    goal_type_json = hole_json['goal']
-    goal_term_json = hole_json['term']
-    goal_names_used = hole_json['namesUsed']
-    context = [Declaration(name=c['name'], type=parse_type(c['item'], version)) for c in context_json]
-
-    return Hole(
-        goal_type=reduce(lambda result, argument: PiType(argument, result),
-                         reversed(context),
-                         parse_type(goal_type_json['thing'], version)),  # type: ignore
-        goal_term=parse_type(goal_term_json['thing']['original'], version),
-        names_used=[Reference(name) for name in goal_names_used])
+def parse_declaration(dec_json: dict) -> Declaration[str]:
+    return Declaration(name=dec_json['name'],
+                       type=parse_term(dec_json['type']['term']),
+                       definition=parse_term(dec_json['definition']['term']))
 
 
-def parse_declaration(dec_json: dict, version: str) -> Declaration[str]:
-    return Declaration(name=dec_json['name'], type=parse_type(dec_json['item']['thing'], version))
+def parse_hole(hole_json: dict) -> Hole[str]:
+    return Hole(type=parse_term(hole_json['type']['term']),
+                definition=parse_term(hole_json['definition']['term']),
+                premises=[Reference(p) for p in hole_json['premises']])
 
 
-def parse_type(type_json: dict, which: str) -> AgdaType[str]:
-    def go(_type_json: dict) -> AgdaType[str]: return parse_type(_type_json, which)
-
-    if which in type_json.keys():
-        if (tmp := type_json[which]) is not None:
-            type_json = tmp
-        else:
-            type_json = type_json['original']
-
-    match type_json['tag']:
+def parse_term(term_json: dict) -> AgdaTerm[str]:
+    match term_json['tag']:
         case 'Pi':
-            left, right = type_json['contents']
-            name, type_json = left['name'], left['item']
-            return PiType(argument=(Declaration(name=name, type=go(type_json)) if name != '_' else go(type_json)),
-                          result=go(right))
-        case 'App':
-            head, args = type_json['contents']
-            head_type = parse_head(head)
-            arg_types = [go(arg) for arg in args]
-            return reduce(AppType, arg_types, head_type)  # type: ignore
-        case 'Lam':
-            contents = type_json['contents']
-            return LamType(abstraction=contents['name'], body=go(contents['item']))
+            return PiTerm(domain=parse_term(term_json['domain']),
+                          codomain=parse_term(term_json['codomain']),
+                          name=None if (name := term_json['name']) == '_' else name)
+        case 'Application':
+            return reduce(AppTerm,
+                          [parse_term(a) for a in term_json['arguments']],
+                          parse_term(term_json['head']))  # type: ignore
+        case 'Lambda':
+            return LamTerm(body=parse_term(term_json['body']), abstraction=term_json['abstraction'])
         case 'Sort':
-            return SortType(type_json['contents'].replace(' ', '_'))
-        case 'Lit':
-            return LitType(type_json['contents'].replace(' ', '_'))
+            return SortTerm(content=term_json['sort'])
+        case 'Literal':
+            return LitTerm(content=term_json['literal'])
         case 'Level':
-            return LevelType(type_json['contents'].replace(' ', '_'))
+            return LevelTerm(content=term_json['level'])
+        case 'ADT':
+            return ADTTerm(tuple(parse_term(v) for v in term_json['variants']))
+        case 'Constructor':
+            return Constructor(reference=Reference(term_json['reference']), variant=int(term_json['variant']))
+        case 'ScopeReference':
+            return Reference(term_json['name'])
+        case 'deBruijn':
+            return DeBruijn(term_json['index'])
         case _:
-            raise ValueError
+            raise ValueError(f'Unknown tag f{term_json["tag"]}')
 
 
-def parse_head(head_json: dict) -> Reference | DeBruijn:
-    return Reference(name) if (name := head_json.get('Left')) is not None else DeBruijn(int(head_json.get('Right')))
-
-
-def merge_scopes(file: File[str], extras: list[Declaration]) -> File[str]:
-    expanded = [*extras, *[entry for entry in file.scope if entry not in extras]]
-    return File(scope=expanded, holes=file.holes, name=file.name)
-
-
-def enum_references(file: File[str]) -> tuple[File[int], dict[int, Name]]:
+def enum_references(file: File[str]) -> tuple[File[int], dict[int, str]]:
     name_to_index = defaultdict(lambda: -1, {declaration.name: idx for idx, declaration in enumerate(file.scope)})
     index_to_name = {v: k for k, v in name_to_index.items()}
     return (
         File(name=file.name,
-             scope=[Declaration(name=name_to_index[declaration.name], type=declaration.type.substitute(name_to_index))
+             scope=[Declaration(name=name_to_index[declaration.name],
+                                type=declaration.type.substitute(name_to_index),
+                                definition=declaration.definition.substitute(name_to_index))
                     for declaration in file.scope],
-             holes=[Hole(goal_type=hole.goal_type.substitute(name_to_index),
-                         goal_term=hole.goal_term.substitute(name_to_index),
-                         names_used=[name.substitute(name_to_index) for name in hole.names_used])
+             holes=[Hole(type=hole.type.substitute(name_to_index),
+                         definition=hole.definition.substitute(name_to_index),
+                         premises=[premise.substitute(name_to_index) for premise in hole.premises])
                     for hole in file.holes]),
-        index_to_name
-    )
+        index_to_name)
