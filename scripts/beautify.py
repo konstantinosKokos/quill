@@ -83,3 +83,24 @@ def beautify_head(head_json: dict) -> dict:
     if 'Right' in head_json:
         return {'tag': 'deBruijn', 'index': head_json['Right']}
     raise ValueError
+
+
+def main(input_directory: str, output_directory: str):
+    from json import load, dumps
+    from os import listdir, path
+
+    errors = {}
+
+    for file in listdir(input_directory):
+        if path.isfile(path.join(input_directory, file)):
+            with open(path.join(input_directory, file), 'r') as f:
+                try:
+                    out = beautify_file(load(f))
+                except Exception as e:
+                    errors[file] = repr(e)
+                    continue
+            with open(path.join(output_directory, file), 'w') as f:
+                f.write(dumps(out, indent=4, ensure_ascii=False))
+
+    with open(path.join(output_directory, 'errors'), 'w') as f:
+        f.write(dumps(errors, indent=4, ensure_ascii=False))

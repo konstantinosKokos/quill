@@ -1,122 +1,71 @@
 import pickle
 
-import torch
-from src.Name.neural.batching import make_collator, Sampler
-from src.Name.neural.model import Model
+from src.Name.neural.train import TrainCfg, Trainer, macro_binary_stats, binary_stats
+from src.Name.neural.batching import filter_data, Sampler, Collator
 from src.Name.neural.utils.schedules import make_schedule
-from src.Name.neural.utils.metrics import binary_stats, macro_binary_stats
-from torch import device as _device
+
+from torch import device
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
-from math import ceil
-
-with open('./data/tokenized.p', 'rb') as f:
-    tokenized = pickle.load(f)
 
 
-dim = 128
-num_epochs = 100
-num_layers = 8
-batch_size = 2
-backprop_every = 1
-num_holes = 4
-max_scope_entries = 200
-max_scope_size = 150
-max_goal_size = 300
-max_db_index = 20
-lm_chance = 0.1
-device = _device('cpu')
-dev_split = ceil(len(tokenized) * 0.25)
+def train(config: TrainCfg, data_path: str, cast_to: str):
+    with open(data_path, 'rb') as f:
+        data = pickle.load(f)
+        print(f'Read {len(data)} files.')
+
+    data = list(filter_data(data,
+                            max_scope_size=config['max_scope_size'],
+                            max_db_index=config['model_config']['max_db_index'],
+                            max_ast_len=config['max_ast_len']))
+    print(f'Kept {len(data)} files.')
+
+    model = Trainer(config['model_config']).to(device(cast_to))
+    train_sampler = Sampler([(name, scope, holes) for name, scope, holes in data if name in config['train_files']])
+    epoch_size = train_sampler.itersize(config['batch_size_s'] * config['backprop_every'], config['batch_size_h'])
+    collator = Collator(pad_value=-1, cast_to=device(cast_to))
+
+    optimizer = AdamW(params=model.parameters(), lr=1, weight_decay=1e-02)
+    schedule = make_schedule(warmup_steps=config['warmup_epochs'] * epoch_size,
+                             warmdown_steps=config['warmdown_epochs'] * epoch_size,
+                             max_lr=config['max_lr'],
+                             min_lr=config['min_lr'],
+                             total_steps=config['num_epochs'] * epoch_size)
+    scheduler = LambdaLR(optimizer=optimizer, lr_lambda=schedule, last_epoch=-1)
+
+    for epoch in range(config['num_epochs']):
+        epoch_stats = model.train_epoch(
+            epoch=map(collator, train_sampler.iter(
+                batch_size_s=config['batch_size_s'],
+                batch_size_h=config['batch_size_h'])),
+            optimizer=optimizer,
+            scheduler=scheduler,
+            backprop_every=config['backprop_every'])
+        print(macro_binary_stats(*binary_stats(epoch_stats['predictions'], epoch_stats['truth'])))
 
 
-train_sampler = Sampler(tokenized[:-dev_split], max_scope_entries=max_scope_entries,
-                        max_scope_size=max_scope_size, max_goal_size=max_goal_size, max_db_index=max_db_index)
-dev_sampler = Sampler(tokenized[-dev_split:], max_scope_entries=max_scope_entries,
-                      max_scope_size=max_scope_size, max_goal_size=max_goal_size, max_db_index=max_db_index)
-collator = make_collator(device)
-
-epoch_size = train_sampler.itersize(batch_size * backprop_every, num_holes)
-
-model = Model(num_layers=num_layers, dim=dim, max_db_index=max_db_index).to(device)
-
-
-opt = AdamW(model.parameters(), lr=1, weight_decay=1e-02)
-scheduler = LambdaLR(opt,
-                     make_schedule(warmup_steps=3 * epoch_size,
-                                   total_steps=100 * epoch_size,
-                                   warmdown_steps=90 * epoch_size,
-                                   max_lr=5e-4,
-                                   min_lr=1e-7),
-                     last_epoch=-1)
-
-best_epoch_loss = None
-
-for epoch_id in range(num_epochs):
-    epoch_lemma_loss, epoch_lm_loss = 0, 0
-    epoch_lemma_preds, epoch_lemma_correct = [], []
-    epoch_lm_hits, epoch_lm_total = 0, 0
-
-    train_epoch = train_sampler.iter(batch_size, num_holes)
-    model.train()
-
-    for batch_id, batch in enumerate(train_epoch):
-        collated = collator(batch, 0.1)
-        lemma_preds, gold_labels, (lm_hits, lm_total), lemma_loss, lm_loss = model.compute_losses(collated)
-        loss = lemma_loss + lm_loss
-        loss.backward()
-
-        if (batch_id + 1) % backprop_every == 0:
-            opt.step()
-            scheduler.step()
-            opt.zero_grad(set_to_none=True)
-
-        epoch_lemma_loss += lemma_loss.item()
-        epoch_lm_loss += lm_loss.item()
-        epoch_lemma_preds += lemma_preds
-        epoch_lemma_correct += gold_labels
-        epoch_lm_hits += lm_hits
-        epoch_lm_total += lm_total
-
-    print('=' * 64)
-    print(f'Epoch {epoch_id}')
-    print(f'\tLM Loss: {epoch_lm_loss/epoch_lm_total:.2f}')
-    print(f'\tLemma Loss: {epoch_lemma_loss/len(epoch_lemma_preds):.2f}')
-    print(f'\tTotal: {epoch_lm_loss + epoch_lemma_loss:.2f}')
-    print(f'\tLR: {scheduler.get_last_lr()[0]} (step: {scheduler.last_epoch})')
-    tp, fn, tn, fp = binary_stats(epoch_lemma_preds, epoch_lemma_correct)
-    accuracy, f1, prec, rec = macro_binary_stats(tp, fn, tn, fp)
-    print('-' * 64)
-    print(f'\tAccuracy: {epoch_lm_hits / epoch_lm_total:.2f} (LM, {epoch_lm_hits}/{epoch_lm_total})')
-    print(f'\tAccuracy: {accuracy:.2f} (lemma)')
-    print(f'\tPrecision: {prec:.2f}')
-    print(f'\tRecall: {rec:.2f}')
-    print(f'\tF1: {f1:.2f}')
-    print('~' * 64)
-
-    epoch_lemma_preds, epoch_lemma_correct = [], []
-    epoch_dev_loss = 0
-    model.eval()
-
-    with torch.no_grad():
-        for file in dev_sampler.filtered:
-            lemma_preds, gold_labels, _, lemma_loss, _ = model.compute_losses(collator([file], 0.0))
-            epoch_dev_loss += lemma_loss.item()
-
-            epoch_lemma_preds += lemma_preds
-            epoch_lemma_correct += gold_labels
-
-        print(f'\tDev Loss: {epoch_lemma_loss/len(epoch_lemma_preds)}')
-        tp, fn, tn, fp = binary_stats(epoch_lemma_preds, epoch_lemma_correct)
-        accuracy, f1, prec, rec = macro_binary_stats(tp, fn, tn, fp)
-        print('-' * 64)
-        print(f'\tDev Accuracy: {accuracy:.2f} (lemma)')
-        print(f'\tDev Precision: {prec:.2f}')
-        print(f'\tDev Recall: {rec:.2f}')
-        print(f'\tDev F1: {f1:.2f}')
-    print('\n')
-
-    if best_epoch_loss is None or epoch_dev_loss < best_epoch_loss:
-        best_epoch_loss = epoch_dev_loss
-        print('New best, saving...')
-        model.save('./best_weights.pt')
-        print('Saved.')
+test_cfg: TrainCfg = {
+    'model_config':     {
+        'depth':                6,
+        'num_heads':            4,
+        'dim':                  128,
+        'atn_dim':              16,
+        'share_depth_params':   True,
+        'share_term_params':    True,
+        'dropout_rate':         0.1,
+        'max_db_index':         50
+    },
+    'num_epochs':       100,
+    'warmup_epochs':    3,
+    'warmdown_epochs':  90,
+    'batch_size_s':     2,
+    'batch_size_h':     4,
+    'max_scope_size':   150,
+    'max_ast_len':      300,
+    'max_lr':           5e-4,
+    'min_lr':           1e-7,
+    'backprop_every':   2,
+    'train_files':      [line for line in open('./data/stdlib.contents').read().split('\n')],
+    'dev_files':        [],
+    'test_files':       [],
+}
