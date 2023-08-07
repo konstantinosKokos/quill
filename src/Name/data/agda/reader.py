@@ -1,5 +1,5 @@
-from .terms import (AgdaTerm, AppTerm, PiTerm, LamTerm, LitTerm, SortTerm, LevelTerm,
-                    ADTTerm, Constructor, File, Declaration, DeBruijn, Reference, Hole)
+from .syntax import (AgdaTerm, AppTerm, PiTerm, LamTerm, LitTerm, SortTerm, LevelTerm,
+                     ADTTerm, Constructor, File, Declaration, DeBruijn, Reference, Hole)
 from json import load
 from os import listdir, path
 from functools import reduce
@@ -34,7 +34,7 @@ def parse_declaration(dec_json: dict) -> Declaration[str]:
 def parse_hole(hole_json: dict) -> Hole[str]:
     return Hole(type=parse_term(hole_json['type']['term']),
                 definition=parse_term(hole_json['definition']['term']),
-                premises=[Reference(p) for p in hole_json['premises']])
+                lemmas=[Reference(p) for p in hole_json['premises']])
 
 
 def parse_term(term_json: dict) -> AgdaTerm[str]:
@@ -78,6 +78,6 @@ def enum_references(file: File[str]) -> tuple[File[int], dict[int, str]]:
                     for declaration in file.scope],
              holes=[Hole(type=hole.type.substitute(name_to_index),
                          definition=hole.definition.substitute(name_to_index),
-                         premises=[premise.substitute(name_to_index) for premise in hole.premises])
+                         lemmas=[premise.substitute(name_to_index) for premise in hole.lemmas])
                     for hole in file.holes]),
         index_to_name)

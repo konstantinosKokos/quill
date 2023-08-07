@@ -4,15 +4,16 @@ from .internal.tree import flatten, enumerate_nodes
 
 TokenizedNode = tuple[int, int, int, int]
 TokenizedAST = list[TokenizedNode]
+TokenizedFile = tuple[str, list[tuple[TokenizedAST, TokenizedAST]], list[tuple[TokenizedAST, TokenizedAST, list[int]]]]
 
 
 def tokenize_node(content: BinaryOps | tuple[UnaryOps, int] | NullaryOps,
                   node_idx: int,
                   tree_idx: int) -> TokenizedNode:
     match content:
-        case BinaryOps(op): return 1, op, node_idx, tree_idx
-        case NullaryOps(op): return 2, op, node_idx, tree_idx
-        case (UnaryOps(op), value): return 3 + op, value, node_idx, tree_idx
+        case BinaryOps(): return 1, content.value, node_idx, tree_idx
+        case NullaryOps(): return 2, content.value, node_idx, tree_idx
+        case (uop, value): return 3 + uop.value, value, node_idx, tree_idx
         case _: raise ValueError
 
 
@@ -34,14 +35,13 @@ def detokenize_ast(nodes: TokenizedAST) -> AgdaTree:
     raise NotImplementedError
 
 
-def tokenize_file(file: File[int]) -> tuple[list[tuple[TokenizedAST, TokenizedAST]],
-                                            list[tuple[TokenizedAST, TokenizedAST, list[int]]]]:
+def tokenize_file(file: File[int]) -> TokenizedFile:
     scope = [(tokenize_ast(term_to_tree(entry.type), i),
               tokenize_ast(term_to_tree(entry.definition), i)) for i, entry in enumerate(file.scope)]
     holes = [(tokenize_ast(term_to_tree(hole.type), -1),
               tokenize_ast(term_to_tree(hole.definition), -1),
-              [premise.name for premise in hole.premises]) for hole in file.holes]
-    return scope, holes
+              [lemma.name for lemma in hole.lemmas]) for hole in file.holes]
+    return file.name, scope, holes
 
 
 def detokenize_file(file: tuple[list[tuple[TokenizedAST, TokenizedAST]],
@@ -52,6 +52,6 @@ def detokenize_file(file: tuple[list[tuple[TokenizedAST, TokenizedAST]],
                        for i, (type_ast, def_ast) in tokenized_scope],
                 holes=[Hole(type=detokenize_ast(type_ast),
                             definition=detokenize_ast(def_ast),
-                            premises=[Reference(p) for p in premises])
+                            lemmas=[Reference(p) for p in premises])
                        for type_ast, def_ast, premises in tokenized_holes],
                 name=name)

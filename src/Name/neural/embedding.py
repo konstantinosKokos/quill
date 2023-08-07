@@ -43,7 +43,7 @@ class BinaryPathEncoder(Module):
 
 
 class SequentialPositionEncoder(Module):
-    def __init__(self, dim: int, freq: int = 1000):
+    def __init__(self, dim: int, freq: int):
         super(SequentialPositionEncoder, self).__init__()
         self.dim = dim
         self.freq = freq
@@ -61,43 +61,63 @@ class SequentialPositionEncoder(Module):
         return embeddings.view(*positions.shape, self.dim)
 
 
-class TokenEmbedder(Module):
+class TokenEmbedding(Module):
     def __init__(self,
-                 num_ops: int,
-                 num_leaves: int,
                  dim: int,
-                 max_db_index: int = 50):
-        super(TokenEmbedder, self).__init__()
-        self.num_leaves = num_leaves
-        self.num_ops = num_ops
+                 max_db_index: int):
+        super(TokenEmbedding, self).__init__()
         self.max_db_size = max_db_index
         self.dim = dim
-        # ops, leaves, [sos], [ref], [oos], [mask]
-        self.fixed_embeddings = Embedding(num_embeddings=num_ops+num_leaves+3, embedding_dim=dim // 2)
         self.path_encoder = BinaryPathEncoder.orthogonal(dim // 2)
-        self.db_encoder = SequentialPositionEncoder(dim // 2, freq=max_db_index)
+        self.db_encoder = SequentialPositionEncoder(dim // 4, freq=max_db_index)
+        self.embeddings = Embedding(num_embeddings=12, embedding_dim=dim // 4)
+        """
+        Embedding map:
+            0 [SOS]
+            _ BinOp
+                1 [Lam]
+                2 [Pi]
+                3 [ADT]
+                4 [Cons]
+            _ NullOp
+                5 [Sort]
+                6 [Level]
+                7 [Lit]
+                _ [Abs]
+            _ UnaryOp
+                8 [Reference]
+                9 :1/2 [deBruijn]
+                9 1/2: [variant]
+            10 [oos]
+            11 [mask]
+        """
 
-    def forward(self, dense_batch: Tensor, lm_mask: Tensor | None) -> Tensor:
+    def forward(self, dense_batch: Tensor) -> Tensor:
         token_types, token_values, node_positions, tree_positions = dense_batch
 
         sos_mask = token_types == 0
-        op_mask = token_types == 1
-        leaf_mask = token_types == 2
+        bop_mask = token_types == 1
+        nop_mask = token_types == 2
         ref_mask = (token_types == 3) & (token_values != -1)
         oos_mask = (token_types == 3) & (token_values == -1)
-        db_mask = token_types == 4
+        db_mask = (token_types == 4)
+        var_mask = (token_types == 5)
 
         path_embeddings = self.path_encoder.forward(*node_positions.unique(return_inverse=True))
 
         content_embeddings = torch.zeros_like(path_embeddings)
-        content_embeddings[sos_mask] = self.fixed_embeddings.weight[0]
-        content_embeddings[op_mask] = self.fixed_embeddings.forward(token_values[op_mask] + 1)
-        content_embeddings[leaf_mask] = self.fixed_embeddings.forward(token_values[leaf_mask] + self.num_ops + 1)
-        content_embeddings[ref_mask] = self.fixed_embeddings.weight[-2]
-        content_embeddings[oos_mask] = self.fixed_embeddings.weight[-1]
-        if lm_mask is not None:
-            content_embeddings[lm_mask] = self.fixed_embeddings.weight[-1]
-        content_embeddings[db_mask] = self.db_encoder.forward(token_values[db_mask])
+        content_embeddings[sos_mask] = self.embeddings.weight[0]
+        content_embeddings[bop_mask] = self.embeddings.forward(token_values[bop_mask] + 1)
+        content_embeddings[nop_mask] = self.embeddings.forward(token_values[nop_mask] + 5)
+        content_embeddings[ref_mask] = self.embeddings.weight[8]
+        content_embeddings[db_mask] = torch.cat((
+            self.embeddings.weight[9][:self.dim//4], self.db_encoder.forward(token_values[db_mask])), dim=-1)
+        content_embeddings[var_mask] = torch.cat((
+            self.embeddings.weight[9][self.dim // 4:], self.db_encoder.forward(token_values[var_mask])), dim=-1)
+        content_embeddings[oos_mask] = self.embeddings.weight[10]
+
+        # if lm_mask is not None:
+        #     content_embeddings[lm_mask] = self.embeddings.weight[11]
 
         return torch.cat((content_embeddings, path_embeddings), -1)
 

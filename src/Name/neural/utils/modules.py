@@ -29,8 +29,8 @@ class SwiGLU(Module):
         self.v = Linear(input_dim, interm_dim, bias=False)
         self.w_out = Linear(interm_dim, output_dim, bias=False)
 
-    def forward(self, x: Tensor) -> Tensor:
-        interm = self.w_in(x)
+    def forward(self, x: Tensor, gate: Tensor | None) -> Tensor:
+        interm = self.w_in(x if gate is None else x)
         interm = swish(interm) * self.v(x)
         return self.w_out(interm)
 
@@ -72,7 +72,7 @@ class LinearMHA(Module):
     def __init__(self, num_heads: int, dim: int, d_atn: int, dropout_rate: float = 0.1):
         super(LinearMHA, self).__init__()
         self.num_heads = num_heads
-        if (dim % num_heads != 0):
+        if dim % num_heads != 0:
             raise ValueError('dim must be divisible by num_heads')
         self.q_transformation = Linear(in_features=dim, out_features=d_atn * num_heads, bias=False)
         self.k_transformation = Linear(in_features=dim, out_features=d_atn * num_heads, bias=False)
@@ -96,7 +96,27 @@ class ResidualFFN(Module):
         self.ffn = SwiGLU(dim, intermediate, dim)
         self.dropout = Dropout(dropout_rate)
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Tensor, gate: Tensor | None) -> Tensor:
         norm = self.pre_norm(x)
-        ffn = self.ffn(norm)
+        ffn = self.ffn(norm, gate)
         return ffn + norm
+
+
+class EncoderLayer(Module):
+    def __init__(self, num_heads: int, dim: int, dropout_rate: float, atn_dim: int | None):
+        super(EncoderLayer, self).__init__()
+        self.mha_norm = RMSNorm(dim)
+        self.ffn_norm = RMSNorm(dim)
+        if atn_dim is None:
+            self.mha = MHA(num_heads, dim, dropout_rate)
+        else:
+            self.mha = LinearMHA(num_heads, dim, atn_dim, dropout_rate)
+        self.res_ffn = ResidualFFN(dim, 4 * dim, dropout_rate)
+
+    def forward(self, encoder_input: Tensor, attention_mask: Tensor) -> Tensor:
+        encoder_input = self.mha_norm(encoder_input)
+        mha_x = self.mha(encoder_input, encoder_input, encoder_input, attention_mask)
+        mha_x = encoder_input + mha_x
+        ffn_x = self.res_ffn(mha_x)
+        ffn_x = encoder_input + ffn_x
+        return ffn_x
