@@ -57,11 +57,11 @@ class Model(Module):
         source_index, target_index = edge_index
         sources = scope_reprs.flatten(0, 1)[source_index]
         targets = hole_reprs.flatten(0, 1)[target_index]
-        return self.lemma_predictor(sources * targets).squeze(-1)
+        return self.lemma_predictor(sources * targets).squeeze(-1)
 
-    def compute_loss(self, batch: Batch) -> tuple[list[int], list[int], Tensor]:
+    def compute_loss(self, batch: Batch) -> tuple[list[bool], list[bool], Tensor]:
         scope_reprs, _, _, hole_reprs = self.encode(batch)
-        predictions = self.predict_lemmas(scope_reprs=scope_reprs[:, :, 0],
+        predictions = self.predict_lemmas(scope_reprs=scope_reprs,
                                           hole_reprs=hole_reprs[:, :, 0],
                                           edge_index=batch.edge_index)
         loss = focal_loss(predictions, batch.lemmas, gamma=2.)

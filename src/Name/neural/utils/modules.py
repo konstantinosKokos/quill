@@ -2,6 +2,7 @@ import torch
 from torch import Tensor
 from torch.nn import Module, Parameter, Linear, Dropout
 from torch.nn.functional import binary_cross_entropy_with_logits
+
 from .attention import lin_atn_fn, atn_fn
 
 
@@ -96,7 +97,7 @@ class ResidualFFN(Module):
         self.ffn = SwiGLU(dim, intermediate, dim)
         self.dropout = Dropout(dropout_rate)
 
-    def forward(self, x: Tensor, gate: Tensor | None) -> Tensor:
+    def forward(self, x: Tensor, gate: Tensor | None = None) -> Tensor:
         norm = self.pre_norm(x)
         ffn = self.ffn(norm, gate)
         return ffn + norm

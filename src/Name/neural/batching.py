@@ -1,5 +1,3 @@
-from ..data.tokenization import TokenizedFile, TokenizedAST
-
 from typing import NamedTuple, Iterator, TypeVar
 
 import torch
@@ -10,6 +8,8 @@ from torch.nn.utils.rnn import pad_sequence
 from math import ceil
 from random import sample
 from itertools import groupby
+
+from ..data.tokenization import TokenizedFile, TokenizedAST
 
 
 class BatchedASTs(NamedTuple):
@@ -69,14 +69,14 @@ class Collator:
                         for i, (scope_len, hole_count) in enumerate(zip(scope_lens, hole_counts))]
         target_index = [torch.arange((start := i * most_holes), start + hole_count).repeat_interleave(scope_len)
                         for i, (scope_len, hole_count) in enumerate(zip(scope_lens, hole_counts))]
-        edge_index = torch.stack((torch.cat(source_index), torch.cat(target_index)))
+        edge_index = torch.stack((torch.cat(source_index), torch.cat(target_index))).to(self.cast_to)
 
         # dense padded batches
         scope_types: Tensor = self.pad_arrays(scope_types)
         scope_definitions: Tensor = self.pad_arrays(scope_definitions)
         hole_types: Tensor = self.pad_arrays(hole_types)
         lemmas: Tensor = torch.tensor(
-            [i in ps for scope, holes in files for _, _, ps in holes for i in range(len(scope))],
+            [i in ps for _, scope, holes in files for _, _, ps in holes for i in range(len(scope))],
             dtype=torch.bool, device=self.cast_to)
 
         # reference offsets
@@ -91,20 +91,19 @@ class Collator:
         scope_type_ref_values = scope_type_offsets[scope_type_ref_mask]
         scope_def_ref_values = scope_def_offsets[scope_def_ref_mask]
         hole_type_ref_values = hole_type_offsets[hole_type_ref_mask]
-
         return Batch(scope_types=
-                     BatchedASTs(tokens=scope_types,
-                                 token_mask=self.make_token_mask(scope_types),
+                     BatchedASTs(tokens=scope_types.permute(3, 0, 1, 2),
+                                 token_mask=self.make_token_mask(scope_types).flatten(0, 1),
                                  reference_mask=scope_type_ref_mask,
                                  reference_ids=scope_type_ref_values),
                      scope_definitions=
-                     BatchedASTs(tokens=scope_definitions,
-                                 token_mask=self.make_token_mask(scope_definitions),
+                     BatchedASTs(tokens=scope_definitions.permute(3, 0, 1, 2),
+                                 token_mask=self.make_token_mask(scope_definitions).flatten(0, 1),
                                  reference_mask=scope_def_ref_mask,
                                  reference_ids=scope_def_ref_values),
                      hole_types=
-                     BatchedASTs(tokens=hole_types,
-                                 token_mask=self.make_token_mask(hole_types),
+                     BatchedASTs(tokens=hole_types.permute(3, 0, 1, 2),
+                                 token_mask=self.make_token_mask(hole_types).flatten(0, 1),
                                  reference_mask=hole_type_ref_mask,
                                  reference_ids=hole_type_ref_values),
                      batch_pts=batch_pts,
@@ -167,5 +166,5 @@ class Sampler:
             batch_indices = [(scope_id, [hole for _, holes in items for hole in holes])
                              for scope_id, items
                              in groupby(sorted(batch_indices, key=lambda x: x[0]), key=lambda x: x[0])]
-            yield [(self.data[scope_idx][1], select(self.data[scope_idx][2], hole_ids))
+            yield [(self.data[scope_idx][0], self.data[scope_idx][1], select(self.data[scope_idx][2], hole_ids))
                    for scope_idx, hole_ids in batch_indices]

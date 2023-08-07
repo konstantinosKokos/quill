@@ -1,7 +1,8 @@
-from .utils.modules import EncoderLayer, ResidualFFN
-from torch.nn import Module, ModuleList
+from torch.nn import Module, ModuleList, Bilinear
 from torch import Tensor
 from torch.distributions import Gumbel
+
+from .utils.modules import EncoderLayer, ResidualFFN
 
 
 class ReferenceUpdater(Module):
@@ -15,7 +16,7 @@ class ReferenceUpdater(Module):
                 reference_ids: Tensor,
                 reference_embeddings: Tensor) -> Tensor:
         gate = token_embeddings[reference_mask]
-        ctx = reference_embeddings[reference_ids]
+        ctx = reference_embeddings.flatten(0, 1)[reference_ids]
         update = self.fusion_nn.forward(x=ctx, gate=gate)
         token_embeddings[reference_mask] = update
         return token_embeddings
@@ -51,7 +52,7 @@ class EntryEncoderLayer(Module):
         encoder_kwargs = {'num_heads': num_heads, 'dim': dim, 'atn_dim': atn_dim, 'dropout_rate': dropout_rate}
         self.type_encoder = TermEncoderLayer(**encoder_kwargs)
         self.def_encoder = self.type_encoder if self.share_params else TermEncoderLayer(**encoder_kwargs)
-        self.entry_encoder = ...
+        self.entry_encoder = Bilinear(dim, dim, dim, bias=False)
 
     def forward(self,
                 type_token_embeddings: Tensor,
@@ -75,7 +76,7 @@ class EntryEncoderLayer(Module):
             reference_mask=def_token_ref_mask,
             reference_ids=def_token_ref_ids,
             reference_embeddings=reference_embeddings)
-        entry_embeddings = self.entry_encoder(type_token_embeddings[:, 0], def_token_embeddings[:, 0])
+        entry_embeddings = self.entry_encoder(type_token_embeddings[:, :, 0], def_token_embeddings[:, :, 0])
         return entry_embeddings, type_token_embeddings, def_token_embeddings
 
 

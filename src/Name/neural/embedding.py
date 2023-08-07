@@ -70,7 +70,7 @@ class TokenEmbedding(Module):
         self.dim = dim
         self.path_encoder = BinaryPathEncoder.orthogonal(dim // 2)
         self.db_encoder = SequentialPositionEncoder(dim // 4, freq=max_db_index)
-        self.embeddings = Embedding(num_embeddings=12, embedding_dim=dim // 4)
+        self.embeddings = Embedding(num_embeddings=12, embedding_dim=dim // 2)
         """
         Embedding map:
             0 [SOS]
@@ -110,10 +110,12 @@ class TokenEmbedding(Module):
         content_embeddings[bop_mask] = self.embeddings.forward(token_values[bop_mask] + 1)
         content_embeddings[nop_mask] = self.embeddings.forward(token_values[nop_mask] + 5)
         content_embeddings[ref_mask] = self.embeddings.weight[8]
+        db_values = self.db_encoder.forward(token_values[db_mask])
         content_embeddings[db_mask] = torch.cat((
-            self.embeddings.weight[9][:self.dim//4], self.db_encoder.forward(token_values[db_mask])), dim=-1)
+            self.embeddings.weight[9][:self.dim//4].expand_as(db_values), db_values), dim=-1)
+        var_values = self.db_encoder.forward(token_values[var_mask])
         content_embeddings[var_mask] = torch.cat((
-            self.embeddings.weight[9][self.dim // 4:], self.db_encoder.forward(token_values[var_mask])), dim=-1)
+            self.embeddings.weight[9][self.dim // 4:].expand_as(var_values), var_values), dim=-1)
         content_embeddings[oos_mask] = self.embeddings.weight[10]
 
         # if lm_mask is not None:
