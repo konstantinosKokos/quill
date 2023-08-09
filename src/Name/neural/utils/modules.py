@@ -15,7 +15,7 @@ def focal_loss(inputs: Tensor, targets: Tensor, gamma: float) -> Tensor:
     alpha = sum(targets)/sum(~targets)
     bce_loss = binary_cross_entropy_with_logits(inputs, targets.float(), reduction='none', pos_weight=1/alpha)
     probs = inputs.sigmoid()
-    distance = (1 - probs) * targets + probs * (1 - targets)
+    distance = torch.where(targets, 1 - probs, probs)
     loss = (distance ** gamma) * bce_loss
     return loss.sum()
 
