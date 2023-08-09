@@ -12,15 +12,19 @@ def swish(x: Tensor, b: int = 1) -> Tensor:
 
 
 def focal_loss(inputs: Tensor, targets: Tensor, gamma: float) -> Tensor:
-
     alpha = sum(targets)/sum(~targets)
     bce_loss = binary_cross_entropy_with_logits(inputs, targets.float(), reduction='none', pos_weight=1/alpha)
     probs = inputs.sigmoid()
-    mod_p = (1 - probs) ** gamma
-    mod_n = probs ** gamma
-    modulation = torch.where(targets.bool(), mod_p, mod_n)
-    loss = modulation * bce_loss
+    distance = (1 - probs) * targets + probs * (1 - targets)
+    loss = (distance ** gamma) * bce_loss
     return loss.sum()
+
+
+def dice_loss(inputs: Tensor, targets: Tensor) -> Tensor:
+    probs = inputs.sigmoid()
+    soft_tp = (probs * targets).sum()
+    soft_f = ((1 - probs) * targets + probs * (1 - targets)).sum()
+    return 2 * soft_tp / (2 * soft_tp + soft_f)
 
 
 class SwiGLU(Module):
@@ -107,7 +111,6 @@ class EncoderLayer(Module):
     def __init__(self, num_heads: int, dim: int, dropout_rate: float, atn_dim: int | None):
         super(EncoderLayer, self).__init__()
         self.mha_norm = RMSNorm(dim)
-        self.ffn_norm = RMSNorm(dim)
         if atn_dim is None:
             self.mha = MHA(num_heads, dim, dropout_rate)
         else:
