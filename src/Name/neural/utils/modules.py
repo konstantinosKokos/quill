@@ -22,9 +22,9 @@ def focal_loss(inputs: Tensor, targets: Tensor, gamma: float) -> Tensor:
 
 def dice_loss(inputs: Tensor, targets: Tensor) -> Tensor:
     probs = inputs.sigmoid()
-    soft_tp = (probs * targets).sum()
-    soft_f = ((1 - probs) * targets + probs * (1 - targets)).sum()
-    return 2 * soft_tp / (2 * soft_tp + soft_f)
+    soft_tp = inputs[targets == 1].sum()
+    soft_f = torch.where(targets, 1 - probs, probs).sum()
+    return - 2 * soft_tp / (2 * soft_tp + soft_f)
 
 
 class SwiGLU(Module):
