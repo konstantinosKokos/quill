@@ -1,3 +1,4 @@
+import torch
 from torch import Tensor
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
@@ -54,13 +55,23 @@ def macro_binary_stats(tp: int, fn: int, tn: int, fp: int) -> tuple[float, float
     return accuracy, f1, prec, rec
 
 
+def subsample_mask(xs: Tensor, factor: float) -> Tensor:
+    num_neg_samples = min(xs.sum() * factor, (~xs).sum())
+    false_indices = torch.nonzero(~xs)
+    sampled_false_indices = false_indices[torch.randperm(false_indices.size(0))][:num_neg_samples]
+    mask = torch.zeros_like(xs)
+    mask[xs] = True
+    mask[sampled_false_indices] = True
+    return mask
+
+
 class Trainer(Model):
     def compute_loss(self, batch: Batch) -> tuple[list[bool], list[bool], Tensor]:
         scope_reprs, _, _, hole_reprs = self.encode(batch)
         predictions = self.predict_lemmas(scope_reprs=scope_reprs,
                                           hole_reprs=hole_reprs[:, :, 0],
                                           edge_index=batch.edge_index)
-        loss = focal_loss(predictions, batch.lemmas, gamma=2.)
+        loss = focal_loss(predictions, batch.lemmas, gamma=2)
         return (predictions.sigmoid().round().cpu().bool().tolist(),
                 batch.lemmas.cpu().tolist(),
                 loss)
@@ -116,6 +127,5 @@ class Logger:
 
     def write(self, obj: Any) -> None:
         with open(self.log, 'a') as f:
-            f.write(repr(obj))
-        self.stdout.write(obj)
-
+            f.write(f'{obj}')
+        self.stdout.write(f'{obj}')
