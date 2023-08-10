@@ -34,7 +34,7 @@ def parse_declaration(dec_json: dict) -> Declaration[str]:
 def parse_hole(hole_json: dict) -> Hole[str]:
     return Hole(type=parse_term(hole_json['type']['term']),
                 definition=parse_term(hole_json['definition']['term']),
-                lemmas=[Reference(p) for p in hole_json['premises']])
+                lemmas={Reference(p) for p in hole_json['premises']})
 
 
 def parse_term(term_json: dict) -> AgdaTerm[str]:
@@ -78,6 +78,7 @@ def enum_references(file: File[str]) -> tuple[File[int], dict[int, str]]:
                     for declaration in file.scope],
              holes=[Hole(type=hole.type.substitute(name_to_index),
                          definition=hole.definition.substitute(name_to_index),
-                         lemmas=[premise.substitute(name_to_index) for premise in hole.lemmas])
+                         lemmas={s for premise in hole.lemmas
+                                 if (s := premise.substitute(name_to_index)) != -1})
                     for hole in file.holes]),
         index_to_name)
