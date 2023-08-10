@@ -24,7 +24,7 @@ class File(Generic[Name]):
 class Hole(Generic[Name]):
     type: AgdaTerm[Name]
     definition: AgdaTerm[Name]
-    lemmas: set[Reference[Name]]  # n.b. scope reference only
+    lemmas: list[Reference[Name]]  # n.b. scope reference only
 
     def __repr__(self) -> str:
         return f'\t{self.definition} : {self.type}'

@@ -52,6 +52,6 @@ def detokenize_file(file: tuple[list[tuple[TokenizedAST, TokenizedAST]],
                        for i, (type_ast, def_ast) in tokenized_scope],
                 holes=[Hole(type=detokenize_ast(type_ast),
                             definition=detokenize_ast(def_ast),
-                            lemmas={Reference(p) for p in premises})
+                            lemmas=[Reference(p) for p in premises])
                        for type_ast, def_ast, premises in tokenized_holes],
                 name=name)
