@@ -68,6 +68,8 @@ def parse_term(term_json: dict) -> AgdaTerm[str]:
 
 
 def enum_references(file: File[str]) -> tuple[File[int], dict[int, str]]:
+    if len(file.scope) != len(set(entry.name for entry in file.scope)):
+        raise ValueError(f'{file.name} contains duplicate declaration names')
     name_to_index = defaultdict(lambda: -1, {declaration.name: idx for idx, declaration in enumerate(file.scope)})
     index_to_name = {v: k for k, v in name_to_index.items()}
     return (

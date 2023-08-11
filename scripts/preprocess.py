@@ -5,7 +5,10 @@ import pickle
 
 samples = []
 for i, file in enumerate(parse_dir('../data/beauty')):
-    anonymous, _ = enum_references(file)
+    try:
+        anonymous, _ = enum_references(file)
+    except ValueError:
+        continue
     name, scope, holes = tokenize_file(anonymous)
     if len(holes) != 0:
         samples.append((name, scope, holes))
