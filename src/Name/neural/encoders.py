@@ -1,8 +1,8 @@
-from torch.nn import Module, ModuleList, Bilinear
+import torch
+from torch.nn import Module, ModuleList, Parameter
 from torch import Tensor
-from torch.distributions import Gumbel
 
-from .utils.modules import EncoderLayer, ResidualFFN
+from .utils.modules import EncoderLayer, ResidualFFN, SwiGLU, RMSNorm
 
 
 class ReferenceUpdater(Module):
@@ -52,7 +52,8 @@ class EntryEncoderLayer(Module):
         encoder_kwargs = {'num_heads': num_heads, 'dim': dim, 'atn_dim': atn_dim, 'dropout_rate': dropout_rate}
         self.type_encoder = TermEncoderLayer(**encoder_kwargs)
         self.def_encoder = self.type_encoder if self.share_params else TermEncoderLayer(**encoder_kwargs)
-        self.entry_encoder = Bilinear(dim, dim, dim, bias=False)
+        self.entry_encoder = SwiGLU(dim, 4 * dim, dim)
+        self.entry_norm = RMSNorm(dim)
 
     def forward(self,
                 type_token_embeddings: Tensor,
@@ -76,7 +77,9 @@ class EntryEncoderLayer(Module):
             reference_mask=def_token_ref_mask,
             reference_ids=def_token_ref_ids,
             reference_embeddings=reference_embeddings)
-        entry_embeddings = self.entry_encoder(type_token_embeddings[:, :, 0], def_token_embeddings[:, :, 0])
+        entry_embeddings = self.entry_encoder.forward(x=def_token_embeddings[:, :, 0],
+                                                      gate=type_token_embeddings[:, :, 0])
+        entry_embeddings = entry_embeddings + self.entry_norm(reference_embeddings)
         return entry_embeddings, type_token_embeddings, def_token_embeddings
 
 
@@ -148,7 +151,7 @@ class FileEncoder(Module):
             self.layers = ModuleList([FileEncoderLayer(
                 share_term_params=share_term_params, dim=dim, dropout_rate=dropout_rate,
                 atn_dim=atn_dim, num_heads=num_heads)])
-        self.noise_gen = Gumbel(0, 0.1)
+        self.init_seed = Parameter(torch.rand(dim), requires_grad=True)
 
     def forward(self,
                 scope_type_embeddings: Tensor,
@@ -163,7 +166,7 @@ class FileEncoder(Module):
                 hole_type_mask: Tensor,
                 hole_type_ref_mask: Tensor,
                 hole_type_ref_ids: Tensor) -> tuple[Tensor, Tensor, Tensor, Tensor]:
-        scope_embeddings = self.noise_gen.sample(scope_type_embeddings[:, :, 0].shape).to(scope_type_embeddings.device)
+        scope_embeddings = self.init_seed.expand_as(scope_type_embeddings[:, :, 0])
         for depth in range(self.depth):
             layer_idx = depth if not self.share_depth_params else 0
             (scope_embeddings, scope_type_embeddings, scope_def_embeddings, hole_type_embeddings) = \

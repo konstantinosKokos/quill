@@ -1,7 +1,7 @@
 import torch
 from torch import Tensor
 from torch.nn import Module, Linear
-from typing import TypedDict
+from typing import TypedDict, Type
 
 from .encoders import FileEncoder
 from .embedding import TokenEmbedding
@@ -17,6 +17,7 @@ class ModelCfg(TypedDict):
     share_term_params: bool
     dropout_rate: float
     max_db_index: int
+    mode: Type[list] | Type[set] | Type[object]
 
 
 class Model(Module):
@@ -30,8 +31,9 @@ class Model(Module):
             atn_dim=config['atn_dim'],
             dropout_rate=config['dropout_rate'],
             depth=config['depth'])
+        self.mode = config['mode']
         self.embedding = TokenEmbedding(dim=config['dim'], max_db_index=config['max_db_index'])
-        self.lemma_predictor = Linear(config['dim'], 1, bias=False)
+        self.lemma_predictor = Linear(config['dim'], 1)
 
     def encode(self, batch: Batch) -> tuple[Tensor, Tensor, Tensor, Tensor]:
         scope_type_embeddings = self.embedding.forward(batch.scope_types.tokens)
@@ -56,11 +58,10 @@ class Model(Module):
         source_index, target_index = edge_index
         sources = scope_reprs.flatten(0, 1)[source_index]
         targets = hole_reprs.flatten(0, 1)[target_index]
-        return self.lemma_predictor(sources * targets).squeeze(-1)
+        return self.lemma_predictor.forward(sources * targets).squeeze(-1)
 
     def save(self, path: str) -> None:
         torch.save(self.state_dict(), path)
 
-    def load(self, path: str, map_location: str) -> None:
-        self.load_state_dict(torch.load(path, map_location=map_location), strict=True)
-
+    def load(self, path: str, map_location: str, strict: bool = True) -> None:
+        self.load_state_dict(torch.load(path, map_location=map_location), strict=strict)

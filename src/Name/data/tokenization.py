@@ -40,7 +40,7 @@ def tokenize_file(file: File[int]) -> TokenizedFile:
               tokenize_ast(term_to_tree(entry.definition), i)) for i, entry in enumerate(file.scope)]
     holes = [(tokenize_ast(term_to_tree(hole.type), -1),
               tokenize_ast(term_to_tree(hole.definition), -1),
-              [lemma.name for lemma in hole.lemmas]) for hole in file.holes]
+              [n for lemma in hole.lemmas if (n := lemma.name) != -1]) for hole in file.holes]
     return file.name, scope, holes
 
 

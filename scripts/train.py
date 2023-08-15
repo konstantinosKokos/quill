@@ -1,7 +1,6 @@
-import pdb
 import pickle
 
-from src.Name.neural.train import TrainCfg, Trainer, macro_binary_stats, binary_stats, Logger
+from src.Name.neural.train import TrainCfg, Trainer, acc, Logger, ModelCfg
 from src.Name.neural.batching import filter_data, Sampler, Collator
 from src.Name.neural.utils.schedules import make_schedule
 
@@ -26,13 +25,12 @@ def train(config: TrainCfg, data_path: str, cast_to: str):
                             max_db_index=config['model_config']['max_db_index'],
                             max_ast_len=config['max_ast_len']))
     print(f'Kept {len(data)} files with {sum(len(hs) for _, _, hs in data)} holes.')
-    pdb.set_trace()
 
     model = Trainer(config['model_config']).to(device(cast_to))
     train_sampler = Sampler([(name, scope, holes) for name, scope, holes in data if name in config['train_files']])
     dev_data = [(name, scope, holes) for name, scope, holes in data if name in config['dev_files']]
     epoch_size = train_sampler.itersize(config['batch_size_s'] * config['backprop_every'], config['batch_size_h'])
-    collator = Collator(pad_value=-1, cast_to=device(cast_to))
+    collator = Collator(pad_value=-1, mode=model_config['mode'], cast_to=device(cast_to))
 
     optimizer = AdamW(params=model.parameters(), lr=1, weight_decay=1e-02)
     schedule = make_schedule(warmup_steps=config['warmup_epochs'] * epoch_size,
@@ -53,12 +51,12 @@ def train(config: TrainCfg, data_path: str, cast_to: str):
             optimizer=optimizer,
             scheduler=scheduler,
             backprop_every=config['backprop_every'])
-        print(train_epoch['loss'])
-        print(macro_binary_stats(*binary_stats(train_epoch['predictions'], train_epoch['truth'])))
+        print(f'Train loss: {train_epoch["loss"]}')
+        print(f'Train acc: {acc(train_epoch["predictions"])}')
         print('-' * 64)
         dev_epoch = model.eval_epoch(map(lambda x: collator([x]), dev_data))
-        print(dev_epoch['loss'])
-        print(macro_binary_stats(*binary_stats(dev_epoch['predictions'], dev_epoch['truth'])))
+        print(f'Dev loss: {dev_epoch["loss"]}')
+        print(f'Dev acc: {acc(dev_epoch["predictions"])}')
 
         if dev_epoch['loss'] < best_loss:
             print('Saving...')
@@ -69,30 +67,33 @@ def train(config: TrainCfg, data_path: str, cast_to: str):
 
 stdlib = [line for line in open('./data/stdlib.contents').read().split('\n')]
 
+model_config: ModelCfg = {
+    'mode':                 object,
+    'depth':                8,
+    'num_heads':            4,
+    'dim':                  256,
+    'atn_dim':              16,
+    'share_depth_params':   True,
+    'share_term_params':    True,
+    'dropout_rate':         0.15,
+    'max_db_index':         50
+}
+
 test_cfg: TrainCfg = {
-    'model_config':     {
-        'depth':                6,
-        'num_heads':            4,
-        'dim':                  256,
-        'atn_dim':              16,
-        'share_depth_params':   True,
-        'share_term_params':    True,
-        'dropout_rate':         0.15,
-        'max_db_index':         50
-    },
-    'num_epochs':       100,
-    'warmup_epochs':    3,
-    'warmdown_epochs':  90,
-    'batch_size_s':     2,
-    'batch_size_h':     16,
-    'max_scope_size':   450,
-    'max_ast_len':      500,
-    'max_lr':           5e-4,
-    'min_lr':           1e-7,
-    'backprop_every':   2,
-    'train_files':      stdlib[:ceil(0.75 * len(stdlib))],
-    'dev_files':        stdlib[ceil(0.75 * len(stdlib)):],
-    'test_files':       [],
+    'model_config':         model_config,
+    'num_epochs':           100,
+    'warmup_epochs':        3,
+    'warmdown_epochs':      90,
+    'batch_size_s':         1,
+    'batch_size_h':         64,
+    'max_scope_size':       450,
+    'max_ast_len':          1000,
+    'max_lr':               5e-4,
+    'min_lr':               1e-7,
+    'backprop_every':       4,
+    'train_files':          stdlib[:ceil(0.75 * len(stdlib))],
+    'dev_files':            stdlib[ceil(0.75 * len(stdlib)):],
+    'test_files':           [],
 }
 
 

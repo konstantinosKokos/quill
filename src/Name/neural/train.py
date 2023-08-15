@@ -3,11 +3,12 @@ from torch import Tensor
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
 
+from torch_geometric.utils import softmax as sparse_softmax
+
 from typing import TypedDict, Iterator, IO, Any
 
 from .model import ModelCfg, Model
 from .batching import Batch
-from .utils.modules import focal_loss
 
 
 class TrainCfg(TypedDict):
@@ -30,13 +31,11 @@ class TrainCfg(TypedDict):
 class TrainStats(TypedDict):
     loss:               float
     predictions:        list[bool]
-    truth:              list[bool]
 
 
 def _add(x: TrainStats, y: TrainStats) -> TrainStats:
     return {'loss': x['loss'] + y['loss'],
-            'predictions': x['predictions'] + y['predictions'],
-            'truth': x['truth'] + y['truth']}
+            'predictions': x['predictions'] + y['predictions']}
 
 
 def binary_stats(predictions: list[bool], truths: list[bool]) -> tuple[int, int, int, int]:
@@ -55,6 +54,10 @@ def macro_binary_stats(tp: int, fn: int, tn: int, fp: int) -> tuple[float, float
     return accuracy, f1, prec, rec
 
 
+def acc(xs: list[bool]) -> float:
+    return sum(xs)/len(xs)
+
+
 def subsample_mask(xs: Tensor, factor: float) -> Tensor:
     num_neg_samples = min(xs.sum() * factor, (~xs).sum())
     false_indices = torch.nonzero(~xs)
@@ -66,15 +69,14 @@ def subsample_mask(xs: Tensor, factor: float) -> Tensor:
 
 
 class Trainer(Model):
-    def compute_loss(self, batch: Batch) -> tuple[list[bool], list[bool], Tensor]:
+    def compute_loss(self, batch: Batch) -> tuple[list[bool], Tensor]:
         scope_reprs, _, _, hole_reprs = self.encode(batch)
         predictions = self.predict_lemmas(scope_reprs=scope_reprs,
                                           hole_reprs=hole_reprs[:, :, 0],
                                           edge_index=batch.edge_index)
-        loss = focal_loss(predictions, batch.lemmas, gamma=2)
-        return (predictions.sigmoid().round().cpu().bool().tolist(),
-                batch.lemmas.cpu().tolist(),
-                loss)
+        predictions = sparse_softmax(predictions, batch.edge_index[1])
+        loss = -predictions.log()[batch.lemmas].sum()
+        return predictions[batch.lemmas].round().cpu().bool().tolist(), loss
 
     def train_epoch(self,
                     epoch: Iterator[Batch],
@@ -95,7 +97,7 @@ class Trainer(Model):
                     optimizer: Optimizer,
                     scheduler: LRScheduler,
                     backprop: bool) -> TrainStats:
-        predictions, truth, loss = self.compute_loss(batch)
+        predictions, loss = self.compute_loss(batch)
         loss.backward()
 
         if backprop:
@@ -103,17 +105,15 @@ class Trainer(Model):
             scheduler.step()
             optimizer.zero_grad(set_to_none=True)
 
-        return {'loss': loss.item(),
-                'predictions': predictions,
-                'truth': truth}
+        return {'loss': loss.item(), 'predictions': predictions}
 
     def eval_batch(self, batch: Batch) -> TrainStats:
-        predictions, truth, loss = self.compute_loss(batch)
-        return {'loss': loss.item(), 'predictions': predictions, 'truth': truth}
+        predictions, loss = self.compute_loss(batch)
+        return {'loss': loss.item(), 'predictions': predictions}
 
     def eval_epoch(self, epoch: Iterator[Batch]) -> TrainStats:
         self.eval()
-        epoch_stats = {'loss': 0, 'predictions': [], 'truth': []}
+        epoch_stats = {'loss': 0, 'predictions': []}
 
         for i, batch in enumerate(epoch):
             epoch_stats = _add(epoch_stats, self.eval_batch(batch))

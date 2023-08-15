@@ -1,4 +1,4 @@
-from typing import NamedTuple, Iterator, TypeVar
+from typing import NamedTuple, Iterator, TypeVar, Type
 
 import torch
 from torch import Tensor, device
@@ -29,9 +29,19 @@ class Batch(NamedTuple):
 
 
 class Collator:
-    def __init__(self, pad_value: int, cast_to: device):
+    def __init__(self, pad_value: int, mode: Type[list] | Type[set] | Type[object], cast_to: device):
         self.cast_to = cast_to
+        self.mode = mode
         self.pad_value = pad_value
+
+    def lemma_pp(self, premises: list[int]) -> list[int]:
+        if self.mode == list:
+            return premises
+        elif self.mode == set:
+            return list(set(premises))
+        elif self.mode == object:
+            return premises[:1]
+        raise ValueError
 
     def tensor(self, xs) -> Tensor:
         return torch.tensor(xs, device=self.cast_to, dtype=torch.long)
@@ -75,22 +85,28 @@ class Collator:
         scope_types: Tensor = self.pad_arrays(scope_types)
         scope_definitions: Tensor = self.pad_arrays(scope_definitions)
         hole_types: Tensor = self.pad_arrays(hole_types)
-        lemmas: Tensor = torch.tensor(
-            [i in ps for _, scope, holes in files for _, _, ps in holes for i in range(len(scope))],
-            dtype=torch.bool, device=self.cast_to)
 
         # reference offsets
         batch_pts = torch.arange(0, num_files, device=self.cast_to).view(-1, 1, 1)
-        batch_offsets = batch_pts * longest_scope
-        scope_type_offsets = scope_types[:, :, :, 1] + batch_offsets
-        scope_def_offsets = scope_definitions[:, :, :, 1] + batch_offsets
-        hole_type_offsets = hole_types[:, :, :, 1] + batch_offsets
+        batch_pts = batch_pts * longest_scope
+        scope_type_offsets = scope_types[:, :, :, 1] + batch_pts
+        scope_def_offsets = scope_definitions[:, :, :, 1] + batch_pts
+        hole_type_offsets = hole_types[:, :, :, 1] + batch_pts
         scope_type_ref_mask = (scope_types[:, :, :, 0] == 3) & (scope_types[:, :, :, 1] != -1)
         scope_def_ref_mask = (scope_definitions[:, :, :, 0] == 3) & (scope_definitions[:, :, :, 1] != -1)
         hole_type_ref_mask = (hole_types[:, :, :, 0] == 3) & (hole_types[:, :, :, 1] != -1)
         scope_type_ref_values = scope_type_offsets[scope_type_ref_mask]
         scope_def_ref_values = scope_def_offsets[scope_def_ref_mask]
         hole_type_ref_values = hole_type_offsets[hole_type_ref_mask]
+
+        # target encoding
+        lemmas: Tensor
+        if self.mode == list:
+            raise NotImplementedError
+        lemmas = torch.tensor(
+            [i in self.lemma_pp(ps) for _, scope, holes in files for _, _, ps in holes for i in range(len(scope))],
+            dtype=torch.bool, device=self.cast_to)
+
         return Batch(scope_types=
                      BatchedASTs(tokens=scope_types.permute(3, 0, 1, 2),
                                  token_mask=self.make_token_mask(scope_types).flatten(0, 1),
@@ -119,8 +135,7 @@ def filter_data(files: list[TokenizedFile],
         return not any([token_type in {4, 5} and token_value >= max_db_index for token_type, token_value, _, _ in ast])
 
     for name, scope, holes in files:
-        holes = [(ht, hd, hp) for ht, hd, hp in holes
-                 if len(ht) <= max_ast_len and len(hp) and db_check(ht)]
+        holes = [(ht, hd, hl) for ht, hd, hl in holes if len(ht) <= max_ast_len and len(hl) and db_check(ht)]
         scope_check = len(scope) <= max_scope_size and all(
             [len(t_ast) <= max_ast_len and db_check(t_ast) and
              len(d_ast) <= max_ast_len and db_check(d_ast)
