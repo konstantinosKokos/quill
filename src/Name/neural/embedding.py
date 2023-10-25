@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pdb
+
 import torch
 from torch import Tensor
 from torch.nn import Module, Parameter, Embedding
@@ -13,12 +15,12 @@ class BinaryPathEncoder(Module):
     def __init__(self, dim: int):
         super().__init__()
         self.primitives: Parameter = Parameter(normal(torch.empty(2, dim, dim)))
-        self.identity: Parameter = Parameter(torch.ones(dim).unsqueeze(0), requires_grad=False)
+        self.identity: Parameter = Parameter(torch.ones(dim).unsqueeze(0))
+        self._pos_to_path: dict[int, list[bool]] = {}
         self.dim: int = dim
 
     def embed_positions(self, positions: list[int]) -> Tensor:
-        # todo: this can be made much more efficient by reusing subsequence maps
-        word_seq = [torch.tensor(self.node_pos_to_path(pos), device=self.primitives.device, dtype=torch.long)
+        word_seq = [torch.tensor(self.pos_to_path(pos), device=self.primitives.device, dtype=torch.long)
                     if pos > 0 else torch.empty(0, device=self.primitives.device, dtype=torch.long)
                     for pos in positions]
         word_ten = pad_sequence(word_seq, padding_value=2, batch_first=True)
@@ -28,14 +30,18 @@ class BinaryPathEncoder(Module):
             maps[word_ten[:, depth] == 1] = linear(maps[word_ten[:, depth] == 1], self.primitives[1])
         return maps
 
-    def forward(self, unique: Tensor, mapping: Tensor) -> Tensor:
-        embeddings = self.embed_positions(unique.cpu().tolist())
+    def forward(self, unique: Tensor) -> Tensor:
+        return self.embed_positions(unique.cpu().tolist())
+
+    def apply_mapping(self, embeddings: Tensor, mapping: Tensor) -> Tensor:
         indices = torch.ravel(mapping)
         return torch.index_select(input=embeddings, dim=0, index=indices).view(*mapping.shape, self.dim)
 
-    @staticmethod
-    def node_pos_to_path(idx: int) -> list[int]:
-        return [] if idx == 1 else [idx % 2] + BinaryPathEncoder.node_pos_to_path(idx // 2)
+    def pos_to_path(self, idx: int) -> list[int]:
+        if idx in self._pos_to_path:
+            return self._pos_to_path[idx]
+        self._pos_to_path[idx] = [] if idx == 1 else [idx % 2] + self.pos_to_path(idx // 2)
+        return self._pos_to_path[idx]
 
     @staticmethod
     def orthogonal(dim: int) -> BinaryPathEncoder:
@@ -63,63 +69,50 @@ class SequentialPositionEncoder(Module):
 
 class TokenEmbedding(Module):
     def __init__(self,
-                 dim: int,
-                 max_db_index: int):
+                 dim: int):
         super(TokenEmbedding, self).__init__()
-        self.max_db_size = max_db_index
         self.dim = dim
         self.path_encoder = BinaryPathEncoder.orthogonal(dim // 2)
-        self.db_encoder = SequentialPositionEncoder(dim // 4, freq=max_db_index)
-        self.embeddings = Embedding(num_embeddings=12, embedding_dim=dim // 2)
+        self.embeddings = Embedding(num_embeddings=11, embedding_dim=dim // 2)
         """
         Embedding map:
             0 [SOS]
             _ BinOp
-                1 [Lam]
-                2 [Pi]
-                3 [ADT]
-                4 [Cons]
+                1 [PiSimple]
+                2 [PiDependent]
+                3 [Lambda]
+                4 [Application]
             _ NullOp
                 5 [Sort]
                 6 [Level]
-                7 [Lit]
-                _ [Abs]
+                7 [Literal]
+                8 [Abs]
             _ UnaryOp
-                8 [Reference]
-                9 :1/2 [deBruijn]
-                9 1/2: [variant]
-            10 [oos]
-            11 [mask]
+                8 [deBruijn]
+            9 [oos]
+            10 [mask]
         """
 
     def forward(self, dense_batch: Tensor) -> Tensor:
-        token_types, token_values, node_positions, tree_positions = dense_batch
+        token_types, token_values, node_positions = dense_batch
 
         sos_mask = token_types == 0
         bop_mask = token_types == 1
         nop_mask = token_types == 2
-        ref_mask = (token_types == 3) & (token_values != -1)
+        # ref_mask = (token_types == 3) & (token_values != -1)
         oos_mask = (token_types == 3) & (token_values == -1)
         db_mask = (token_types == 4)
-        var_mask = (token_types == 5)
 
-        path_embeddings = self.path_encoder.forward(*node_positions.unique(return_inverse=True))
+        unique_paths, inverse = node_positions.unique(return_inverse=True)
+        db_paths = torch.bucketize(token_values[db_mask], unique_paths)
+        path_embeddings = self.path_encoder.forward(unique_paths)
+        positional_encodings = self.path_encoder.apply_mapping(path_embeddings, inverse)
 
-        content_embeddings = torch.zeros_like(path_embeddings)
+        content_embeddings = torch.zeros_like(positional_encodings)
         content_embeddings[sos_mask] = self.embeddings.weight[0]
         content_embeddings[bop_mask] = self.embeddings.forward(token_values[bop_mask] + 1)
         content_embeddings[nop_mask] = self.embeddings.forward(token_values[nop_mask] + 5)
-        content_embeddings[ref_mask] = self.embeddings.weight[8]
-        db_values = self.db_encoder.forward(token_values[db_mask])
-        content_embeddings[db_mask] = torch.cat((
-            self.embeddings.weight[9][:self.dim//4].expand_as(db_values), db_values), dim=-1)
-        var_values = self.db_encoder.forward(token_values[var_mask])
-        content_embeddings[var_mask] = torch.cat((
-            self.embeddings.weight[9][self.dim // 4:].expand_as(var_values), var_values), dim=-1)
+        content_embeddings[db_mask] = self.path_encoder.apply_mapping(path_embeddings, db_paths)
         content_embeddings[oos_mask] = self.embeddings.weight[10]
 
-        # if lm_mask is not None:
-        #     content_embeddings[lm_mask] = self.embeddings.weight[11]
-
-        return torch.cat((content_embeddings, path_embeddings), -1)
-
+        return torch.cat((content_embeddings, positional_encodings), -1)

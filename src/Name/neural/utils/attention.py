@@ -1,5 +1,3 @@
-import pdb
-
 import torch
 from torch import Tensor
 from opt_einsum import contract as _contract

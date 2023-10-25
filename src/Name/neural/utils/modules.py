@@ -17,7 +17,7 @@ def focal_loss(inputs: Tensor, targets: Tensor, gamma: float) -> Tensor:
     probs = inputs.sigmoid()
     distance = torch.where(targets, 1 - probs, probs)
     loss = (distance ** gamma) * bce_loss
-    return loss.sum()
+    return loss
 
 
 def dice_loss(inputs: Tensor, targets: Tensor) -> Tensor:
