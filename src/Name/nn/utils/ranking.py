@@ -1,3 +1,5 @@
+import pdb
+
 import torch
 from torch import Tensor
 from torch.nn.functional import dropout
@@ -35,12 +37,12 @@ def margin_ranking(
 
     assert neg_strategy != Strategy.ALL, 'Whoa there cowboy!'
 
-    positive_mask = dropout(targets, p=positive_sampling)
-    negative_mask = dropout(targets.logical_not(), p=negative_sampling)
+    positive_mask = targets & (torch.rand_like(targets, dtype=torch.float) < positive_sampling)
+    negative_mask = targets.logical_not() & (torch.rand_like(targets, dtype=torch.float) < negative_sampling)
 
     positive_preds = preds[positive_mask]
     negative_preds = preds[negative_mask]
-    positive_mask = edge_index[positive_mask]
+    positive_mask = edge_index[1, positive_mask]
     negative_mask = edge_index[1, negative_mask]
 
     positives, negatives = None, None
@@ -59,12 +61,11 @@ def margin_ranking(
     return torch.clamp(negatives - positives + margin, min=0)
 
 
-def rank_suggestions(x: Tensor, batch_ids: Tensor) -> Tensor:
-    dense_x, _ = to_dense_batch(x=x, batch=batch_ids, fill_value=-1e08)
+def rank_candidates(x: Tensor, batch_ids: Tensor) -> tuple[Tensor, Tensor]:
+    dense_x, x_mask = to_dense_batch(x=x, batch=batch_ids, fill_value=-1e08)
     _, perm = dense_x.sort(dim=-1, descending=True)
     # todo: you cant recover original values without the extra indexing ops
-    # arange = torch.arange(batch_size, dtype=torch.long, device=x.device) * num_nodes
-    return perm
+    return perm, x_mask.sum(dim=-1)
 
 
 def average_precision(ranked_suggestions: list[int], relevant_items: set[int]) -> float:
@@ -83,7 +84,7 @@ def evaluate_rankings(predictions: Tensor, batch_ids: Tensor, truths: Tensor) ->
     if len(batch_ids) == 0:
         return []
 
-    ranked_suggestions = rank_suggestions(predictions, batch_ids).cpu().tolist()
+    ranked_suggestions = rank_candidates(predictions, batch_ids)[0].cpu().tolist()
     dense_truths, _ = to_dense_batch(truths, batch_ids, fill_value=0)
     relevant_items = [{i for i, value in enumerate(row) if value} for row in dense_truths.cpu().bool().tolist()]
     return [(average_precision(rs, ri), rprecision(rs, ri))
