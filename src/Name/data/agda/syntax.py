@@ -33,12 +33,12 @@ class File(_AgdaExpr[Name]):
                    for premise in hole.premises)
 
     @property
-    def holes(self) -> list[Hole[Name]]:
-        return [hole for entry in self.scope for hole in entry.holes]
+    def holes(self) -> list[tuple[Name, Hole[Name]]]:
+        return [(entry.name, hole) for entry in self.scope for hole in entry.holes]
 
     @property
     def num_holes(self) -> int:
-        return sum(len(e.holes) for e in self.scope)
+        return len(self.holes)
 
     def unique_entry_names(self) -> bool:
         return len({entry.name for entry in self.scope}) == len(self.scope)
