@@ -1,17 +1,34 @@
-from .syntax import (AgdaTerm, AppTerm, PiTerm, LamTerm, LitTerm, SortTerm, LevelTerm,
-                     ADTTerm, Constructor, File, Declaration, DeBruijn, Reference, Hole)
+from .syntax import (AgdaTerm, AppTerm, PiTerm, LamTerm, LitTerm, SortTerm,
+                     LevelTerm, DeBruijn, Reference, UnsolvedMeta,
+                     AgdaDefinition, ADT, Constructor, Record, Function,
+                     FunctionClause, Postulate, Primitive,
+                     File, ScopeEntry, Hole, NamedType)
 from json import load
 from os import listdir, path
 from functools import reduce
-from typing import Iterator
-from collections import defaultdict
+from typing import Iterator, Callable, TypeVar
+
+T = TypeVar('T')
+DEBUG = False
 
 
-def parse_dir(directory: str, must_contain: str | None = None) -> Iterator[File[str]]:
+def debug(wrapped: Callable[[dict], T]) -> Callable[[dict], T]:
+    def wrapper(json: dict) -> T:
+        print(json)
+        return wrapped(json)
+    return wrapper if DEBUG else wrapped
+
+
+def parse_dir(directory: str, strict: bool) -> Iterator[File[str]]:
     for file in listdir(directory):
-        if (must_contain is None or must_contain in file) and file.endswith('.json'):
-            print(f'Parsing {file}')
+        print(f'Parsing {file}')
+        try:
             yield parse_file(path.join(directory, file))
+        except AssertionError as e:
+            if strict:
+                raise e
+            print(f'\tFailed: {e}.')
+            continue
 
 
 def parse_file(filepath: str) -> File[str]:
@@ -19,67 +36,89 @@ def parse_file(filepath: str) -> File[str]:
         return parse_data(load(f))
 
 
-def parse_data(data_json: dict) -> File[str]:
-    return File(name=data_json['name'],
-                scope=[parse_declaration(d) for d in data_json['scope']['entries']],
-                holes=[parse_hole(h) for h in data_json['holes']])
+def parse_data(json: dict) -> File[str]:
+    return File(
+        name=json['name'],
+        scope=[parse_scope_entry(d, True) for d in json['scope-global']] +
+              [parse_scope_entry(d, False) for d in json['scope-local']])
 
 
-def parse_declaration(dec_json: dict) -> Declaration[str]:
-    return Declaration(name=dec_json['name'],
-                       type=parse_term(dec_json['type']['term']),
-                       definition=parse_term(dec_json['definition']['term']))
+def parse_scope_entry(json: dict, is_import: bool) -> ScopeEntry[str]:
+    return ScopeEntry(
+        name=json['name'],
+        type=parse_term(json['type']),
+        definition=parse_definition(json['definition']),
+        holes=[] if is_import else [parse_hole(hole) for hole in json['holes']])
 
 
-def parse_hole(hole_json: dict) -> Hole[str]:
-    return Hole(type=parse_term(hole_json['type']['term']),
-                definition=parse_term(hole_json['definition']['term']),
-                lemmas=[Reference(p) for p in hole_json['premises']])
+@debug
+def parse_hole(json: dict) -> Hole[str]:
+    return Hole(
+        context=tuple(parse_term(t) for t in json['ctx']['telescope']),
+        goal=parse_term(json['goal']),
+        term=parse_term(json['term']),
+        premises=tuple(Reference(p) for p in json['premises']))
 
 
-def parse_term(term_json: dict) -> AgdaTerm[str]:
-    match term_json['tag']:
-        case 'Pi':
-            return PiTerm(domain=parse_term(term_json['domain']),
-                          codomain=parse_term(term_json['codomain']),
-                          name=None if (name := term_json['name']) == '_' else name)
-        case 'Application':
-            return reduce(AppTerm,
-                          [parse_term(a) for a in term_json['arguments']],
-                          parse_term(term_json['head']))  # type: ignore
-        case 'Lambda':
-            return LamTerm(body=parse_term(term_json['body']), abstraction=term_json['abstraction'])
-        case 'Sort':
-            return SortTerm(content=term_json['sort'].replace(' ', '_'))
-        case 'Literal':
-            return LitTerm(content=term_json['literal'].replace(' ', '_'))
-        case 'Level':
-            return LevelTerm(content=term_json['level'].replace(' ', '_'))
+@debug
+def parse_named_type(json: dict) -> NamedType:
+    return NamedType(name=json['name'], type=parse_term(json))
+
+
+@debug
+def parse_definition(json: dict) -> AgdaDefinition[str]:
+    match json['tag']:
         case 'ADT':
-            return ADTTerm(tuple(parse_term(v) for v in term_json['variants']))
+            return ADT(variants=tuple(parse_term(t) for t in json['variants']))
         case 'Constructor':
-            return Constructor(reference=Reference(term_json['reference']), variant=int(term_json['variant']))
-        case 'ScopeReference':
-            return Reference(term_json['name'])
-        case 'deBruijn':
-            return DeBruijn(term_json['index'])
+            return Constructor(reference=json['reference'], variant=json['variant'])
+        case 'Record':
+            return Record(
+                fields=tuple(parse_term(f) for f in json['fields']),
+                telescope=tuple(parse_term(t) for t in json['telescope']))
+        case 'Function':
+            return Function(clauses=tuple(parse_clause(c) for c in json['clauses']))
+        case 'Postulate':
+            return Postulate()
+        case 'Primitive':
+            return Primitive()
         case _:
-            raise ValueError(f'Unknown tag f{term_json["tag"]}')
+            raise ValueError(f'Unknown tag {json["tag"]}')
 
 
-def enum_references(file: File[str]) -> tuple[File[int], dict[int, str]]:
-    if len(file.scope) != len(set(entry.name for entry in file.scope)):
-        raise ValueError(f'{file.name} contains duplicate declaration names')
-    name_to_index = defaultdict(lambda: -1, {declaration.name: idx for idx, declaration in enumerate(file.scope)})
-    index_to_name = {v: k for k, v in name_to_index.items()}
-    return (
-        File(name=file.name,
-             scope=[Declaration(name=name_to_index[declaration.name],
-                                type=declaration.type.substitute(name_to_index),
-                                definition=declaration.definition.substitute(name_to_index))
-                    for declaration in file.scope],
-             holes=[Hole(type=hole.type.substitute(name_to_index),
-                         definition=hole.definition.substitute(name_to_index),
-                         lemmas=[premise.substitute(name_to_index) for premise in hole.lemmas])
-                    for hole in file.holes]),
-        index_to_name)
+@debug
+def parse_clause(json: dict) -> FunctionClause:
+    return FunctionClause(
+        telescope=tuple(parse_named_type(nt) for nt in json['telescope']),
+        patterns=tuple(parse_term(t) for t in json['patterns']),
+        body=parse_term(json['body']) if 'body' in json.keys() else None)
+
+
+@debug
+def parse_term(json: dict) -> AgdaTerm[str]:
+    match json['tag']:
+        case 'Pi':
+            return PiTerm(domain=parse_term(json['domain']),
+                          codomain=parse_term(json['codomain']),
+                          name=None if (name := json['name']) == '_' else name)
+        case 'Application':
+            return reduce(
+                AppTerm,
+                [parse_term(a) for a in json['arguments']],
+                parse_term(json['head']))  # type: ignore
+        case 'Lambda':
+            return LamTerm(body=parse_term(json['body']), abstraction=json['abstraction'])
+        case 'Sort':
+            return SortTerm(content=json['sort'].replace(' ', '␣'))
+        case 'Literal':
+            return LitTerm(content=json['literal'].replace(' ', '␣'))
+        case 'Level':
+            return LevelTerm(content=json['level'].replace(' ', '␣'))
+        case 'ScopeReference':
+            return Reference(json['name'])
+        case 'DeBruijn':
+            return DeBruijn(json['index'])
+        case 'UnsolvedMetavariable':
+            return UnsolvedMeta()
+        case _:
+            raise ValueError(f'Unknown tag {json["tag"]}')

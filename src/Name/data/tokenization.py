@@ -1,57 +1,70 @@
-from .agda.syntax import File, Declaration, Hole, Reference
-from .internal.term_to_tree import AgdaTree, BinaryOps, UnaryOps, NullaryOps, term_to_tree
-from .internal.tree import flatten, enumerate_nodes
+from .internal.conversions import AgdaLeaf, AgdaOp, AgdaTree, NullaryOps, BinaryOp, Reference, DeBruijn, term_to_ast
+from .internal.tree import flatten
+from .agda.operations import enum_references, merge_contexts, top_sort_entries
+from .agda.syntax import File
 
-TokenizedNode = tuple[int, int, int, int]
+from typing import NoReturn, NamedTuple
+
+
+TokenizedNode = tuple[int, int, int]
 TokenizedAST = list[TokenizedNode]
-TokenizedFile = tuple[str, list[tuple[TokenizedAST, TokenizedAST]], list[tuple[TokenizedAST, TokenizedAST, list[int]]]]
 
 
-def tokenize_node(content: BinaryOps | tuple[UnaryOps, int] | NullaryOps,
-                  node_idx: int,
-                  tree_idx: int) -> TokenizedNode:
-    match content:
-        case BinaryOps(): return 1, content.value, node_idx, tree_idx
-        case NullaryOps(): return 2, content.value, node_idx, tree_idx
-        case (uop, value): return 3 + uop.value, value, node_idx, tree_idx
-        case _: raise ValueError
-
-
-def detokenize_node(node: tuple[int, int]) -> BinaryOps | tuple[UnaryOps, int] | NullaryOps:
+def tokenize_node(node: AgdaOp | AgdaLeaf,
+                  node_idx: int) -> TokenizedNode:
     match node:
-        case 1, value: return BinaryOps(value)
-        case 2, value: return NullaryOps(value)
-        case op, value: return UnaryOps(op - 3), value
-        case _: raise ValueError
+        case BinaryOp(): return 1, node.value, node_idx
+        case NullaryOps(): return 2, node.value, node_idx
+        case Reference(name): return 3, name, node_idx
+        case DeBruijn(index): return 4, index, node_idx
+        case _: raise ValueError(node)
 
 
-def tokenize_ast(ast: AgdaTree, tree_index: int) -> TokenizedAST:
-    flat = flatten(enumerate_nodes(ast))
-    return [(0, 0, 0, tree_index),
-            *[tokenize_node(content, idx, tree_index) for content, idx in flat if content != NullaryOps.Abs]]
+def tokenize_ast(ast: AgdaTree) -> TokenizedAST:
+    flat = flatten(ast)
+    return [(0, 0, 0),
+            *[tokenize_node(content, idx) for idx, content in flat if content != NullaryOps.Abs]]
 
 
-def detokenize_ast(nodes: TokenizedAST) -> AgdaTree:
+def detokenize_node(node: tuple[int, int]) -> NoReturn:
     raise NotImplementedError
 
 
-def tokenize_file(file: File[int]) -> TokenizedFile:
-    scope = [(tokenize_ast(term_to_tree(entry.type), i),
-              tokenize_ast(term_to_tree(entry.definition), i)) for i, entry in enumerate(file.scope)]
-    holes = [(tokenize_ast(term_to_tree(hole.type), -1),
-              tokenize_ast(term_to_tree(hole.definition), -1),
-              [lemma.name for lemma in hole.lemmas]) for hole in file.holes]
-    return file.name, scope, holes
+def detokenize_ast(nodes: TokenizedAST) -> NoReturn:
+    raise NotImplementedError
 
 
-def detokenize_file(file: tuple[list[tuple[TokenizedAST, TokenizedAST]],
-                                list[tuple[TokenizedAST, TokenizedAST, list[int]]]],
-                    name: str) -> File[int]:
-    tokenized_scope, tokenized_holes = file
-    return File(scope=[Declaration(name=i, type=detokenize_ast(type_ast), definition=detokenize_ast(def_ast))
-                       for i, (type_ast, def_ast) in tokenized_scope],
-                holes=[Hole(type=detokenize_ast(type_ast),
-                            definition=detokenize_ast(def_ast),
-                            lemmas=[Reference(p) for p in premises])
-                       for type_ast, def_ast, premises in tokenized_holes],
-                name=name)
+class TokenizedFile(NamedTuple):
+    file:               File[str]
+    backrefs:           dict[int, str]
+    entry_sort:         list[int]
+    scope_asts:         list[TokenizedAST]
+    hole_to_scope:      list[int]
+    hole_asts:          list[TokenizedAST]
+    premises:           list[list[int]]
+
+
+def tokenize_file(original: File[str]) -> TokenizedFile:
+    merged = merge_contexts(original, merge_holes=True, unique_only=True)
+    anonymous, backrefs = enum_references(merged)
+    entry_sort = top_sort_entries(anonymous)
+    zipped_scopes = tuple(zip(*[
+        (i, tokenize_ast(term_to_ast(entry.type, 1, ()))) for i, entry in enumerate(anonymous.scope)]))
+    zipped_holes = tuple(zip(*[
+        (i, tokenize_ast(term_to_ast(hole.goal, 1, ())), [n for lemma in hole.premises if (n := lemma.name) != 1])
+        for i, entry in enumerate(anonymous.scope) for hole in entry.holes]))
+    scope_positions, scope_asts = zipped_scopes or ([], [])
+    hole_to_scope, hole_asts, premises = zipped_holes or ([], [], [])
+    return TokenizedFile(
+        file=original,
+        backrefs=backrefs,
+        entry_sort=[entry_sort[i] for i in range(len(entry_sort))],
+        scope_asts=scope_asts,
+        hole_to_scope=hole_to_scope,
+        hole_asts=hole_asts,
+        premises=premises
+    )
+
+
+def detokenize_file() -> NoReturn:
+    raise NotImplementedError

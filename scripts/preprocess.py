@@ -1,17 +1,12 @@
-from src.Name.data.agda.reader import parse_dir, enum_references
+from src.Name.data.agda.reader import parse_dir, parse_file
 from src.Name.data.tokenization import tokenize_file
 import pickle
 
 
-samples = []
-for i, file in enumerate(parse_dir('../data/beauty')):
-    try:
-        anonymous, _ = enum_references(file)
-    except ValueError:
-        continue
-    name, scope, holes = tokenize_file(anonymous)
-    if len(holes) != 0:
-        samples.append((name, scope, holes))
+if __name__ == '__main__':
+    files = [tokenize_file(file) for file in parse_dir('../data/stdlib', False)]
+    # samples = [tokenize_file(parse_file('../data/gold/Simple.json'))]
 
-with open('../data/tokenized.p', 'wb') as f:
-    pickle.dump(samples, f)
+    print(f'Tokenized {len(files)} files with {sum(len(file.hole_asts) for file in files)} holes.')
+    with open('../data/tokenized.p', 'wb') as f:
+        pickle.dump(files, f)

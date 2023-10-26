@@ -1,7 +1,7 @@
 import torch
 from torch import Tensor
 from torch.nn import Module, Parameter, Linear, Dropout
-from torch.nn.functional import binary_cross_entropy_with_logits
+
 
 from .attention import lin_atn_fn, atn_fn
 
@@ -9,22 +9,6 @@ from .attention import lin_atn_fn, atn_fn
 def swish(x: Tensor, b: int = 1) -> Tensor:
     gate = torch.sigmoid(b * x)
     return x * gate
-
-
-def focal_loss(inputs: Tensor, targets: Tensor, gamma: float) -> Tensor:
-    alpha = sum(targets)/sum(~targets)
-    bce_loss = binary_cross_entropy_with_logits(inputs, targets.float(), reduction='none', pos_weight=1/alpha)
-    probs = inputs.sigmoid()
-    distance = torch.where(targets, 1 - probs, probs)
-    loss = (distance ** gamma) * bce_loss
-    return loss.sum()
-
-
-def dice_loss(inputs: Tensor, targets: Tensor) -> Tensor:
-    probs = inputs.sigmoid()
-    soft_tp = inputs[targets == 1].sum()
-    soft_f = torch.where(targets, 1 - probs, probs).sum()
-    return - 2 * soft_tp / (2 * soft_tp + soft_f)
 
 
 class SwiGLU(Module):
