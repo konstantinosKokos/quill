@@ -22,10 +22,8 @@ class File(_AgdaExpr[Name]):
     scope: list[ScopeEntry[Name]]
 
     def __post_init__(self):
-        if not self.valid_reference_structure():
-            raise AssertionError('Invalid reference structure')
-        if not self.unique_entry_names():
-            raise AssertionError('Duplicate entry names.')
+        assert self.valid_reference_structure(), 'Invalid reference structure.'
+        assert self.unique_entry_names(), 'Duplicate entry names.'
 
     def valid_reference_structure(self) -> bool:
         names = [entry.name for entry in self.scope]

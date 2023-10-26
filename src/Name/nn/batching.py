@@ -95,10 +95,10 @@ class Collator:
         src_index, tgt_index, premise_selection = [], [], []
         for batch_id, file in enumerate(files):
             src_offset = sum(scope_lens[:batch_id])
-            hole_offset = sum(num_holes[:batch_id])
+            tgt_offset = sum(num_holes[:batch_id])
             for hole_idx, defined_at in enumerate(file.hole_to_scope):
                 src_index += list(range(src_offset, src_offset + defined_at))
-                tgt_index += [hole_offset + hole_idx] * defined_at
+                tgt_index += [tgt_offset + hole_idx] * defined_at
                 premise_selection += [entry in file.premises[hole_idx] for entry in range(defined_at)]
         edge_index = torch.stack((self.tensor(src_index), self.tensor(tgt_index)))
         premises = self.tensor(premise_selection)
@@ -144,10 +144,12 @@ def filter_data(files: list[TokenizedFile],
                 max_ast_len: int) -> Iterator[TokenizedFile]:
 
     for file in files:
-        if (len(file.hole_asts)
-                and len(file.scope_asts) <= max_scope_size
+        if (
+                len(file.hole_asts)
+                and 1 <= len(file.scope_asts) <= max_scope_size
                 and max(len(ast) for ast in file.hole_asts) <= max_ast_len
-                and max(len(ast) for ast in file.scope_asts) <= max_ast_len):
+                and max(len(ast) for ast in file.scope_asts) <= max_ast_len
+        ):
             yield file
 
 

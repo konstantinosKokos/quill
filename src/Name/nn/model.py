@@ -35,7 +35,7 @@ class Model(Module):
             scope_positions=batch.scope_positions,
             hole_positions=batch.hole_positions)
 
-    def predict_lemmas(self, scope_reprs: Tensor, hole_reprs: Tensor, edge_index: Tensor) -> Tensor:
+    def match(self, scope_reprs: Tensor, hole_reprs: Tensor, edge_index: Tensor) -> Tensor:
         source_index, target_index = edge_index
         sources = scope_reprs[source_index]
         targets = hole_reprs[target_index]

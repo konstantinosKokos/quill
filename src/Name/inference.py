@@ -4,9 +4,9 @@ import torch
 
 from .data.agda.reader import File
 from .data.tokenization import tokenize_file
-from .neural.model import Model, ModelCfg
-from .neural.batching import Collator
-from .neural.train import Logger
+from .nn.model import Model, ModelCfg
+from .nn.batching import Collator
+from .nn.train import Logger
 
 from torch_geometric.utils import to_dense_batch
 
@@ -25,7 +25,7 @@ class Inferer(Model):
         with torch.no_grad():
             batch = self.collator([tokenized])
             scope_reprs, hole_reprs = self.encode(batch)
-            lemma_predictions = self.predict_lemmas(scope_reprs, hole_reprs, batch.edge_index)
+            lemma_predictions = self.match(scope_reprs, hole_reprs, batch.edge_index)
             sparse = to_dense_batch(lemma_predictions, batch.edge_index[1], fill_value=-1e8)
             # pdb.set_trace()
             # # todo
