@@ -1,9 +1,9 @@
 import os
 import pickle
 
-from src.Name.nn.training import TrainCfg, Trainer, Logger, ModelCfg
-from src.Name.nn.batching import filter_data, Sampler, Collator
-from src.Name.nn.utils.schedules import make_schedule
+from Name.nn.training import TrainCfg, Trainer, Logger, ModelCfg
+from Name.nn.batching import filter_data, Sampler, Collator
+from Name.nn.utils.schedules import make_schedule
 
 from torch import device
 from torch.optim import AdamW
@@ -72,37 +72,37 @@ def train(config: TrainCfg, data_path: str, cast_to: str):
         print('=' * 64 + '\n')
 
 
+model_cfg: ModelCfg = {
+    'depth': 6,
+    'num_heads': 8,
+    'dim': 128,
+    'atn_dim': None,
+    'dropout_rate': 0.15,
+}
+
+seed(42)
+files = [os.path.splitext(file)[0] for file in os.listdir('./data/stdlib/')]
+shuffle(files)
+train_files, dev_files = files[:(int(0.75 * len(files)))], files[int(0.75 * len(files)):]
+
+train_cfg: TrainCfg = {
+    'model_config': model_cfg,
+    'num_epochs': 99,
+    'warmup_epochs': 3,
+    'warmdown_epochs': 90,
+    'batch_size_s': 2,
+    'batch_size_h': 8,
+    'max_lr': 5e-4,
+    'min_lr': 1e-7,
+    'backprop_every': 1,
+    'train_files': train_files,
+    'dev_files': dev_files,
+    'test_files': [],
+    'max_scope_size': 300,
+    'max_ast_len': 100,
+    'allow_self_loops': False
+}
+
+
 if __name__ == '__main__':
-    seed(42)
-
-    files = [os.path.splitext(file)[0] for file in os.listdir('../data/stdlib/')]
-    shuffle(files)
-    train_files, dev_files = files[:(int(0.75 * len(files)))], files[int(0.75 * len(files)):]
-
-    model_config: ModelCfg = {
-        'depth': 6,
-        'num_heads': 8,
-        'dim': 128,
-        'atn_dim': None,
-        'dropout_rate': 0.15,
-    }
-
-    train_cfg: TrainCfg = {
-        'model_config': model_config,
-        'num_epochs': 99,
-        'warmup_epochs': 3,
-        'warmdown_epochs': 90,
-        'batch_size_s': 2,
-        'batch_size_h': 8,
-        'max_lr': 5e-4,
-        'min_lr': 1e-7,
-        'backprop_every': 1,
-        'train_files': train_files,
-        'dev_files': dev_files,
-        'test_files': [],
-        'max_scope_size': 300,
-        'max_ast_len': 100,
-        'allow_self_loops': False
-    }
-
-    train(train_cfg, '../data/tokenized.p', 'cuda')
+    train(train_cfg, './data/tokenized.p', 'cuda')
