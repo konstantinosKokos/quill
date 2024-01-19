@@ -1,33 +1,39 @@
 from __future__ import annotations
 
-import pdb
-
 import torch
 from torch import Tensor
 from torch.nn import Module, Parameter, Embedding
 from torch.nn.functional import linear
-from torch.nn.init import normal_ as normal
-from torch.nn.utils.parametrizations import orthogonal as orth_param
 from torch.nn.utils.rnn import pad_sequence
 
 
 class BinaryPathEncoder(Module):
     def __init__(self, dim: int):
         super().__init__()
-        self.primitives: Parameter = Parameter(normal(torch.empty(2, dim, dim)))
+        self.dim: int = dim
+        self._primitives = Parameter(torch.rand(2, self.dim, self.dim).softmax(dim=-1).cumsum(dim=-1))
         self.identity: Parameter = Parameter(torch.ones(dim).unsqueeze(0))
         self._pos_to_path: dict[int, list[bool]] = {}
-        self.dim: int = dim
+
+    @property
+    def hermitian(self) -> Tensor:
+        return self._primitives - self._primitives.mH
+
+    @property
+    def primitives(self) -> Tensor:
+        hermitian = self.hermitian
+        return torch.matrix_exp(hermitian)
 
     def embed_positions(self, positions: list[int]) -> Tensor:
+        primitives = self.primitives
         word_seq = [torch.tensor(self.pos_to_path(pos), device=self.primitives.device, dtype=torch.long)
                     if pos > 0 else torch.empty(0, device=self.primitives.device, dtype=torch.long)
                     for pos in positions]
         word_ten = pad_sequence(word_seq, padding_value=2, batch_first=True)
         maps = self.identity.repeat(len(positions), 1)
         for depth in range(word_ten.shape[1]):
-            maps[word_ten[:, depth] == 0] = linear(maps[word_ten[:, depth] == 0], self.primitives[0])
-            maps[word_ten[:, depth] == 1] = linear(maps[word_ten[:, depth] == 1], self.primitives[1])
+            maps[word_ten[:, depth] == 0] = linear(maps[word_ten[:, depth] == 0], primitives[0])
+            maps[word_ten[:, depth] == 1] = linear(maps[word_ten[:, depth] == 1], primitives[1])
         return maps
 
     def forward(self, unique: Tensor) -> Tensor:
@@ -42,10 +48,6 @@ class BinaryPathEncoder(Module):
             return self._pos_to_path[idx]
         self._pos_to_path[idx] = [] if idx == 1 else [idx % 2] + self.pos_to_path(idx // 2)
         return self._pos_to_path[idx]
-
-    @staticmethod
-    def orthogonal(dim: int) -> BinaryPathEncoder:
-        return orth_param(BinaryPathEncoder(dim), name='primitives', orthogonal_map='cayley')  # type: ignore
 
 
 class SequentialPositionEncoder(Module):
@@ -72,7 +74,7 @@ class TokenEmbedding(Module):
                  dim: int):
         super(TokenEmbedding, self).__init__()
         self.dim = dim
-        self.path_encoder = BinaryPathEncoder.orthogonal(dim // 2)
+        self.path_encoder = BinaryPathEncoder(dim=dim // 2)
         self.embeddings = Embedding(num_embeddings=11, embedding_dim=dim // 2)
         """
         Embedding map:
