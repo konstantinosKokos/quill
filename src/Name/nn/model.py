@@ -11,7 +11,7 @@ class ModelCfg(TypedDict):
     depth:              int
     num_heads:          int
     dim:                int
-    atn_dim:            int | None
+    head_dim:           int
     dropout_rate:       float
 
 
@@ -21,7 +21,7 @@ class Model(Module):
         self.file_encoder = FileEncoder(
             num_layers=config['depth'],
             num_heads=config['num_heads'],
-            atn_dim=config['atn_dim'],
+            head_dim=config['head_dim'],
             dim=config['dim'],
             dropout_rate=config['dropout_rate'],
         )
@@ -31,9 +31,7 @@ class Model(Module):
         return self.file_encoder.forward(
             scope_asts=batch.dense_scopes,
             scope_sort=batch.scope_sort,
-            hole_asts=batch.dense_holes,
-            scope_positions=batch.scope_positions,
-            hole_positions=batch.hole_positions)
+            hole_asts=batch.dense_holes)
 
     def match(self, scope_reprs: Tensor, hole_reprs: Tensor, edge_index: Tensor) -> Tensor:
         source_index, target_index = edge_index

@@ -2,8 +2,7 @@ import torch
 from torch import Tensor
 from torch.nn import Module, Parameter, Linear, Dropout
 
-
-from .attention import lin_atn_fn, atn_fn
+from .attention import taylor_atn_fn
 
 
 def swish(x: Tensor, b: int = 1) -> Tensor:
@@ -36,46 +35,21 @@ class RMSNorm(Module):
         return x / norm.clamp(min=self.eps) * self.g
 
 
-class MHA(Module):
-    def __init__(self, num_heads: int, dim: int, dropout_rate: float = 0.1):
-        super(MHA, self).__init__()
-        self.num_heads = num_heads
-        if dim % num_heads != 0:
-            raise ValueError('dim must be divisible by num_heads')
-        self.q_transformation = Linear(in_features=dim, out_features=dim, bias=False)
-        self.k_transformation = Linear(in_features=dim, out_features=dim, bias=False)
-        self.v_transformation = Linear(in_features=dim, out_features=dim, bias=False)
+class TMHA(Module):
+    def __init__(self, dim: int, num_heads: int, head_dim: int):
+        super().__init__()
+        self.q_transformation = Linear(dim, head_dim * num_heads, bias=False)
+        self.k_transformation = Linear(dim, head_dim * num_heads, bias=False)
+        self.v_transformation = Linear(dim, dim, bias=False)
         self.wo = Linear(in_features=dim, out_features=dim, bias=False)
-        self.dropout = Dropout(dropout_rate)
+        self.num_heads = num_heads
 
     def forward(self, queries: Tensor, keys: Tensor, values: Tensor, mask: Tensor) -> Tensor:
-        qs = self.q_transformation(queries).view(queries.shape[0], queries.shape[1], -1, self.num_heads)
-        ks = self.k_transformation(keys).view(keys.shape[0], keys.shape[1], -1, self.num_heads)
-        vs = self.v_transformation(values).view(values.shape[0], values.shape[1], -1, self.num_heads)
-        mha = atn_fn(qs, ks, vs, mask)
-        mha = self.dropout(mha)
-        return self.wo(mha)
-
-
-class LinearMHA(Module):
-    def __init__(self, num_heads: int, dim: int, d_atn: int, dropout_rate: float = 0.1):
-        super(LinearMHA, self).__init__()
-        self.num_heads = num_heads
-        if dim % num_heads != 0:
-            raise ValueError('dim must be divisible by num_heads')
-        self.q_transformation = Linear(in_features=dim, out_features=d_atn * num_heads, bias=False)
-        self.k_transformation = Linear(in_features=dim, out_features=d_atn * num_heads, bias=False)
-        self.v_transformation = Linear(in_features=dim, out_features=dim, bias=False)
-        self.wo = Linear(in_features=dim, out_features=dim, bias=False)
-        self.dropout = Dropout(dropout_rate)
-
-    def forward(self, queries: Tensor, keys: Tensor, values: Tensor, mask: Tensor) -> Tensor:
-        qs = self.q_transformation(queries).view(queries.shape[0], queries.shape[1], -1, self.num_heads)
-        ks = self.k_transformation(keys).view(keys.shape[0], keys.shape[1], -1, self.num_heads)
-        vs = self.v_transformation(values).view(values.shape[0], values.shape[1], -1, self.num_heads)
-        mha = lin_atn_fn(qs, ks, vs, mask)
-        mha = self.dropout(mha)
-        return self.wo(mha)
+        qs = self.q_transformation(queries).view(queries.size(0), queries.size(1), self.num_heads, -1)
+        ks = self.k_transformation(keys).view(queries.size(0), queries.size(1), self.num_heads, -1)
+        vs = self.v_transformation(values).view(queries.size(0), queries.size(1), self.num_heads, -1)
+        out = taylor_atn_fn(qs, ks, vs, mask)
+        return self.wo(out)
 
 
 class ResidualFFN(Module):
@@ -86,25 +60,24 @@ class ResidualFFN(Module):
         self.dropout = Dropout(dropout_rate)
 
     def forward(self, x: Tensor, gate: Tensor | None = None) -> Tensor:
-        norm = self.pre_norm(x)
-        ffn = self.ffn(norm, gate)
-        return ffn + norm
+        ffn = self.pre_norm(x)
+        ffn = self.ffn(ffn, gate)
+        ffn = self.dropout(ffn)
+        return ffn + x
 
 
 class EncoderLayer(Module):
-    def __init__(self, num_heads: int, dim: int, dropout_rate: float, atn_dim: int | None):
+    def __init__(self, num_heads: int, dim: int, dropout_rate: float, head_dim: int):
         super(EncoderLayer, self).__init__()
         self.mha_norm = RMSNorm(dim)
-        if atn_dim is None:
-            self.mha = MHA(num_heads, dim, dropout_rate)
-        else:
-            self.mha = LinearMHA(num_heads, dim, atn_dim, dropout_rate)
+        self.mha = TMHA(dim, num_heads, head_dim)
         self.res_ffn = ResidualFFN(dim, 4 * dim, dropout_rate)
+        self.dropout = Dropout(dropout_rate)
 
     def forward(self, encoder_input: Tensor, attention_mask: Tensor) -> Tensor:
-        encoder_input = self.mha_norm(encoder_input)
-        mha_x = self.mha(encoder_input, encoder_input, encoder_input, attention_mask)
+        mha_x = self.mha_norm(encoder_input)
+        mha_x = self.mha(mha_x, mha_x, mha_x, attention_mask)
+        mha_x = self.dropout(mha_x)
         mha_x = encoder_input + mha_x
-        ffn_x = self.res_ffn(mha_x)
-        ffn_x = encoder_input + ffn_x
-        return ffn_x
+        return self.res_ffn(mha_x)
+

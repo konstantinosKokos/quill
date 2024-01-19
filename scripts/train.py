@@ -9,8 +9,6 @@ from torch import device
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
 
-from random import seed, shuffle
-
 import sys
 
 
@@ -75,15 +73,16 @@ def train(config: TrainCfg, data_path: str, cast_to: str):
 model_cfg: ModelCfg = {
     'depth': 6,
     'num_heads': 8,
-    'dim': 128,
-    'atn_dim': None,
+    'dim': 512,
+    'head_dim': 8,
     'dropout_rate': 0.15,
 }
 
-seed(42)
-files = [os.path.splitext(file)[0] for file in os.listdir('./data/stdlib/')]
-shuffle(files)
-train_files, dev_files = files[:(int(0.75 * len(files)))], files[int(0.75 * len(files)):]
+
+with open('../data/train_files', 'r') as f:
+    train_files = f.read().split('\n')
+with open('../data/dev_files', 'r') as f:
+    dev_files = f.read().split('\n')
 
 train_cfg: TrainCfg = {
     'model_config': model_cfg,

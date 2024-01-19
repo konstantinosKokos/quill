@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pdb
-
 import torch
 from torch import Tensor
 from torch.optim import Optimizer
