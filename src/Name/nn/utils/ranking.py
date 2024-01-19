@@ -1,9 +1,22 @@
-import pdb
-
 import torch
 from torch import Tensor
-from torch_geometric.nn.pool import global_max_pool
+from torch_geometric.nn.pool import global_max_pool, global_mean_pool
 from torch_geometric.utils import to_dense_batch
+
+from enum import Enum
+
+
+def global_min_pool(x: Tensor, batch_ids: Tensor, size: int | None = None) -> Tensor:
+    return -global_max_pool(-x, batch_ids, size=size)
+
+
+class Strategy(Enum):
+    MIN = global_min_pool
+    MAX = global_max_pool
+    AVE = global_mean_pool
+
+    def __call__(self, x: Tensor, batch_ids: Tensor, size: int | None = None) -> Tensor:
+        return self.value(x, batch_ids, size)
 
 
 def margin_ranking(
@@ -11,6 +24,9 @@ def margin_ranking(
         targets: Tensor,
         edge_index: Tensor,
         margin: float = 0.1,
+        hard_filter: bool = True,
+        pos_strategy: Strategy = Strategy.AVE,
+        neg_strategy: Strategy = Strategy.MAX,
         positive_sampling: float = 0.95,
         negative_sampling: float = 0.95) -> Tensor:
     if len(preds) == 0:
@@ -20,17 +36,19 @@ def margin_ranking(
     negative_mask = targets.logical_not() & (torch.rand_like(targets, dtype=torch.float) < negative_sampling)
 
     positive_preds = preds[positive_mask]
-    negative_preds = preds[negative_mask]
+    negative_preds = preds[negative_mask] + margin
     positive_mask = edge_index[1, positive_mask]
     negative_mask = edge_index[1, negative_mask]
 
-    negatives = global_max_pool(negative_preds, negative_mask, size=max(edge_index[1]) + 1)
+    negatives = neg_strategy(negative_preds, negative_mask, size=max(edge_index[1]) + 1)
+    if hard_filter:
+        negative_pairs = negatives[edge_index[1, positive_mask]]
+        difference_mask = negative_pairs > positive_preds
+        positive_preds = positive_preds[difference_mask]
+        positive_mask = positive_mask[difference_mask]
+    positives = pos_strategy(positive_preds, positive_mask, size=max(edge_index[1]) + 1)
 
-    negative_pairs = negatives[edge_index[1, positive_mask]]
-    difference_mask = (negative_pairs - positive_preds) > 0
-    positive_mask = positive_mask[difference_mask]
-    positives = global_max_pool(positive_preds[difference_mask], positive_mask, size=max(edge_index[1]) + 1)
-    return torch.clamp(negatives - positives + margin, min=0)
+    return torch.clamp(negatives - positives, min=0)
 
 
 def rank_candidates(x: Tensor, batch_ids: Tensor) -> tuple[Tensor, Tensor]:
