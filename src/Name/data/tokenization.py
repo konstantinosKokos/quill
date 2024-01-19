@@ -44,8 +44,8 @@ class TokenizedFile(NamedTuple):
     premises:           list[list[int]]
 
 
-def tokenize_file(original: File[str]) -> TokenizedFile:
-    merged = merge_contexts(original, merge_holes=True, unique_only=True)
+def tokenize_file(original: File[str], merge_holes: bool = True, unique_only: bool = True) -> TokenizedFile:
+    merged = merge_contexts(original, merge_holes=merge_holes, unique_only=unique_only)
     anonymous, backrefs = enum_references(merged)
     entry_sort = top_sort_entries(anonymous)
     zipped_scopes = tuple(zip(*[

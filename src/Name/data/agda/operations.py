@@ -1,10 +1,7 @@
-import pdb
-
 from .syntax import File, ScopeEntry, Name, AgdaTerm, PiTerm, LamTerm, AppTerm, Reference, Hole, UnsolvedMeta
 
 from collections import defaultdict
 from functools import reduce
-from itertools import groupby
 
 
 def enum_references(file: File[Name]) -> tuple[File[int], dict[int, Name]]:
@@ -83,10 +80,11 @@ def merge_contexts(file: File[Name], merge_holes: bool, unique_only: bool) -> Fi
     return File(
         name=file.name,
         scope=[
-            ScopeEntry(name=entry.name,
-                       type=entry.type,
-                       definition=entry.definition,
-                       holes=f([ctx_to_pi(h) for h in entry.holes]))
+            ScopeEntry(
+                name=entry.name,
+                type=entry.type,
+                definition=entry.definition,
+                holes=f([ctx_to_pi(h) for h in entry.holes]))
             for entry in file.scope])
 
 

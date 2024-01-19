@@ -15,7 +15,7 @@ class Inferer(Model):
         self.to(cast_to)
 
     def select_premises(self, file: File[str]) -> list[list[str]]:
-        tokenized = tokenize_file(file)
+        tokenized = tokenize_file(file, merge_holes=False, unique_only=False)
         if file.num_holes == 0:
             return []
 
@@ -26,7 +26,6 @@ class Inferer(Model):
             ranked, numels = rank_candidates(pair_scores, batch.edge_index[1])
             return [[tokenized.backrefs[idx] for idx in perm[:valid]]
                     for perm, valid in zip(ranked.cpu().tolist(), numels.cpu().tolist())]
-
 
 
 # from Name.inference import Inferer
