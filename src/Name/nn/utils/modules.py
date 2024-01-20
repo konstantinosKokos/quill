@@ -17,8 +17,8 @@ class SwiGLU(Module):
         self.v = Linear(input_dim, interm_dim, bias=False)
         self.w_out = Linear(interm_dim, output_dim, bias=False)
 
-    def forward(self, x: Tensor, gate: Tensor | None) -> Tensor:
-        interm = self.w_in(x if gate is None else x)
+    def forward(self, x: Tensor) -> Tensor:
+        interm = self.w_in(x)
         interm = swish(interm) * self.v(x)
         return self.w_out(interm)
 
@@ -59,9 +59,9 @@ class ResidualFFN(Module):
         self.ffn = SwiGLU(dim, intermediate, dim)
         self.dropout = Dropout(dropout_rate)
 
-    def forward(self, x: Tensor, gate: Tensor | None = None) -> Tensor:
+    def forward(self, x: Tensor) -> Tensor:
         ffn = self.pre_norm(x)
-        ffn = self.ffn(ffn, gate)
+        ffn = self.ffn(ffn)
         ffn = self.dropout(ffn)
         return ffn + x
 
@@ -80,4 +80,3 @@ class EncoderLayer(Module):
         mha_x = self.dropout(mha_x)
         mha_x = encoder_input + mha_x
         return self.res_ffn(mha_x)
-

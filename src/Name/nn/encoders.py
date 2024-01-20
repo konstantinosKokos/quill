@@ -5,7 +5,7 @@ from torch import Tensor
 from .batching import BatchedASTs
 
 from .utils.modules import EncoderLayer
-from .embedding import TokenEmbedding, SequentialPositionEncoder
+from .embedding import TokenEmbedding
 
 
 class FileEncoder(Module):
@@ -19,7 +19,6 @@ class FileEncoder(Module):
             head_dim=head_dim,
             dropout_rate=dropout_rate)
         self.embedding = TokenEmbedding(dim=dim)
-        self.whatever = SequentialPositionEncoder(dim=dim, freq=500)
 
     def forward(self,
                 scope_asts: BatchedASTs,
