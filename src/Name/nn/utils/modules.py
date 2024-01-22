@@ -1,13 +1,9 @@
 import torch
 from torch import Tensor
 from torch.nn import Module, Parameter, Linear, Dropout
+from torch.nn.functional import silu
 
 from .attention import taylor_atn_fn
-
-
-def swish(x: Tensor, b: int = 1) -> Tensor:
-    gate = torch.sigmoid(b * x)
-    return x * gate
 
 
 class SwiGLU(Module):
@@ -19,7 +15,7 @@ class SwiGLU(Module):
 
     def forward(self, x: Tensor) -> Tensor:
         interm = self.w_in(x)
-        interm = swish(interm) * self.v(x)
+        interm = silu(interm) * self.v(x)
         return self.w_out(interm)
 
 
