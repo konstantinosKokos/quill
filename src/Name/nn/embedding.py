@@ -39,9 +39,14 @@ class BinaryPathEncoder(Module):
     def forward(self, unique: Tensor) -> Tensor:
         return self.embed_positions(unique.cpu().tolist())
 
-    def apply_mapping(self, embeddings: Tensor, mapping: Tensor) -> Tensor:
-        indices = torch.ravel(mapping)
-        return embeddings[indices].view(*mapping.shape, self.dim, self.dim)
+    def apply_mapping(
+            self,
+            maps: Tensor,
+            embeddings: Tensor,
+            index: Tensor) -> Tensor:
+        flat_embeddings = embeddings.flatten(0, -2)
+        flat_index = torch.ravel(index)
+        return torch.einsum('bij,bi->bj', maps[flat_index, :], flat_embeddings)
 
     def pos_to_path(self, idx: int) -> list[int]:
         if idx in self._pos_to_path:
@@ -79,6 +84,7 @@ class TokenEmbedding(Module):
     def forward(self, dense_batch: Tensor) -> Tensor:
         token_types, token_values, node_positions = dense_batch
 
+        pad_mask = token_types != -1
         sos_mask = token_types == 0
         bop_mask = token_types == 1
         nop_mask = token_types == 2
@@ -87,19 +93,19 @@ class TokenEmbedding(Module):
 
         unique_paths, inverse = node_positions.unique(return_inverse=True)
         db_paths = torch.bucketize(token_values[db_mask], unique_paths)
-        path_embeddings = self.path_encoder.forward(unique_paths)
-        positional_encodings = self.path_encoder.apply_mapping(path_embeddings, inverse)
-        db_embeddings = self.path_encoder.apply_mapping(path_embeddings, db_paths)
-        db_embeddings = torch.einsum('...ij, ...ji->...i', positional_encodings[db_mask], db_embeddings)
+        positional_encodings = self.path_encoder.forward(unique_paths)
 
         content_embeddings = torch.zeros(
-            size=positional_encodings.size()[:-1],
-            dtype=positional_encodings.dtype,
-            device=positional_encodings.device)
+            size=(*token_types.size(), self.dim),
+            device=token_types.device)
         content_embeddings[sos_mask] = self.embeddings.weight[0]
         content_embeddings[bop_mask] = self.embeddings.forward(token_values[bop_mask] + 1)
         content_embeddings[nop_mask] = self.embeddings.forward(token_values[nop_mask] + 5)
         content_embeddings[oos_mask] = self.embeddings.weight[10]
-        content_embeddings = torch.einsum('...ij,...j->...i', positional_encodings, content_embeddings)
-        content_embeddings[db_mask] = db_embeddings
+        content_embeddings[db_mask] = positional_encodings[db_paths, :].sum(-1)
+        content_embeddings[pad_mask] = self.path_encoder.apply_mapping(
+            maps=positional_encodings,
+            embeddings=content_embeddings[pad_mask],
+            index=inverse[pad_mask])
+        content_embeddings = content_embeddings
         return content_embeddings
