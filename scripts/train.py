@@ -1,7 +1,9 @@
-import os
+import json
+import argparse
 import pickle
+import sys
 
-from Name.nn.training import TrainCfg, Trainer, Logger, ModelCfg
+from Name.nn.training import TrainCfg, Trainer, Logger
 from Name.nn.batching import filter_data, Sampler, Collator
 from Name.nn.utils.schedules import make_schedule
 
@@ -9,12 +11,11 @@ from torch import device
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
 
-import sys
 
-
-def train(config: TrainCfg, data_path: str, cast_to: str):
-    logger = Logger(sys.stdout, './log.txt')
+def train(config: TrainCfg, data_path: str, store_path: str, log_path: str, cast_to: str):
+    logger = Logger(sys.stdout, log_path)
     sys.stdout = logger
+    print(train_cfg)
 
     with open(data_path, 'rb') as f:
         files = pickle.load(f)
@@ -45,6 +46,7 @@ def train(config: TrainCfg, data_path: str, cast_to: str):
     scheduler = LambdaLR(optimizer=optimizer, lr_lambda=schedule, last_epoch=-1)
 
     best_ap = -1e08
+    print("?")
 
     for epoch in range(config['num_epochs']):
         print(f'Epoch {epoch}')
@@ -65,43 +67,31 @@ def train(config: TrainCfg, data_path: str, cast_to: str):
         print(f'Dev R-Precision: {sum(dev_epoch.rp) / len(dev_epoch.rp)}')
         if sum(dev_epoch.ap) > best_ap:
             print('Saving...')
-            model.save(f'./model.pt')
+            model.save(store_path)
             best_ap = sum(dev_epoch.ap)
         print('=' * 64 + '\n')
+    logger.flush()
 
 
-model_cfg: ModelCfg = {
-    'depth': 6,
-    'num_heads': 8,
-    'dim': 512,
-    'head_dim': 8,
-    'dropout_rate': 0.15,
-}
-
-
-with open('../data/train_files', 'r') as f:
-    train_files = f.read().split('\n')
-with open('../data/dev_files', 'r') as f:
-    dev_files = f.read().split('\n')
-
-train_cfg: TrainCfg = {
-    'model_config': model_cfg,
-    'num_epochs': 99,
-    'warmup_epochs': 3,
-    'warmdown_epochs': 90,
-    'batch_size_s': 2,
-    'batch_size_h': 8,
-    'max_lr': 5e-4,
-    'min_lr': 1e-7,
-    'backprop_every': 1,
-    'train_files': train_files,
-    'dev_files': dev_files,
-    'test_files': [],
-    'max_scope_size': 300,
-    'max_ast_len': 100,
-    'allow_self_loops': False
-}
+def parse_args():
+    parser = argparse.ArgumentParser(description='Run a single training iteration')
+    parser.add_argument('--data_path', type=str, help='Path to data file',
+                        default='../data/tokenized.p')
+    parser.add_argument('--config_path', type=str, help='Path to config file',
+                        default='../data/config.json')
+    parser.add_argument('--store_path', type=str, help='Where to store the trained model',
+                        default='../data/model.pt')
+    parser.add_argument('--log_path', type=str, help='Where to log results',
+                        default='../data/log.txt')
+    return parser.parse_args()
 
 
 if __name__ == '__main__':
-    train(train_cfg, './data/tokenized.p', 'cuda')
+    args = parse_args()
+    train_cfg = json.load(open(args.config_path, 'r'))
+    train(
+        config=train_cfg,
+        data_path=args.data_path,
+        store_path=args.store_path,
+        log_path=args.log_path,
+        cast_to='cuda')

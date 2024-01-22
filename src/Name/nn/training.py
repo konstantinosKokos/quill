@@ -26,8 +26,6 @@ class TrainCfg(TypedDict):
     backprop_every:     int
     max_lr:             float
     min_lr:             float
-    max_scope_size:     int
-    max_ast_len:        int
     train_files:        list[str]
     dev_files:          list[str]
     test_files:         list[str]
