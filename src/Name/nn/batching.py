@@ -139,18 +139,8 @@ class Collator:
         )
 
 
-def filter_data(files: list[TokenizedFile],
-                max_scope_size: int,
-                max_ast_len: int) -> Iterator[TokenizedFile]:
-
-    for file in files:
-        if (
-                len(file.hole_asts)
-                and 1 <= len(file.scope_asts) <= max_scope_size
-                and max(len(ast) for ast in file.hole_asts) <= max_ast_len
-                and max(len(ast) for ast in file.scope_asts) <= max_ast_len
-        ):
-            yield file
+def filter_data(files: list[TokenizedFile], max_tokens: int) -> Iterator[TokenizedFile]:
+    return (file for file in files if sum(len(ast) for ast in file.scope_asts) <= max_tokens and len(file.hole_asts))
 
 
 _T = TypeVar('_T')

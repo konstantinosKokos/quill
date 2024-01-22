@@ -21,8 +21,7 @@ class TrainCfg(TypedDict):
     warmdown_epochs:    int
     batch_size_s:       int
     batch_size_h:       int
-    max_scope_size:     int
-    max_ast_len:        int
+    max_tokens:         int
     backprop_every:     int
     max_lr:             float
     min_lr:             float

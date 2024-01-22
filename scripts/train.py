@@ -23,8 +23,7 @@ def train(config: TrainCfg, data_path: str, store_path: str, log_path: str, cast
 
     files = list(filter_data(
         files=files,
-        max_scope_size=config['max_scope_size'],
-        max_ast_len=config['max_ast_len']))
+        max_tokens=config['max_tokens']))
     print(f'Kept {len(files)} files with {sum(len(file.hole_asts) for file in files)} holes.')
 
     train_files = [file for file in files if file.file.name in config['train_files']]
@@ -46,8 +45,6 @@ def train(config: TrainCfg, data_path: str, store_path: str, log_path: str, cast
     scheduler = LambdaLR(optimizer=optimizer, lr_lambda=schedule, last_epoch=-1)
 
     best_ap = -1e08
-    print("?")
-
     for epoch in range(config['num_epochs']):
         print(f'Epoch {epoch}')
         print('-' * 64)
