@@ -9,7 +9,7 @@ def taylor_2(x: Tensor) -> Tensor:
 
 
 def taylor_atn_fn(queries: Tensor, keys: Tensor, values: Tensor, mask: Tensor) -> Tensor:
-    batch_size, seq_len, dk, num_heads = keys.size()
+    batch_size, seq_len, num_heads, dk = keys.size()
     dividend = torch.sqrt(torch.tensor(dk, device=queries.device, dtype=torch.float))
     queries = queries / dividend
     queries, keys = map(taylor_2, (queries, keys))
