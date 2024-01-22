@@ -12,7 +12,6 @@ class ModelCfg(TypedDict):
     num_heads:          int
     dim:                int
     head_dim:           int
-    dropout_rate:       float
 
 
 class Model(Module):
@@ -23,7 +22,7 @@ class Model(Module):
             num_heads=config['num_heads'],
             head_dim=config['head_dim'],
             dim=config['dim'],
-            dropout_rate=config['dropout_rate'],
+            dropout_rate=0.1
         )
         self.lemma_predictor = Linear(config['dim'], 1)
 
