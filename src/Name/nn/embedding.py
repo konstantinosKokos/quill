@@ -41,7 +41,7 @@ class BinaryPathEncoder(Module):
 
     def apply_mapping(self, embeddings: Tensor, mapping: Tensor) -> Tensor:
         indices = torch.ravel(mapping)
-        return torch.index_select(input=embeddings, dim=0, index=indices).view(*mapping.shape, self.dim, self.dim)
+        return embeddings[indices].view(*mapping.shape, self.dim, self.dim)
 
     def pos_to_path(self, idx: int) -> list[int]:
         if idx in self._pos_to_path:
