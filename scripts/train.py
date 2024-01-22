@@ -3,6 +3,8 @@ import argparse
 import pickle
 import sys
 
+sys.path.extend(['/home/kogkalk1/Projects/neural-agda/src'])
+
 from Name.nn.training import TrainCfg, Trainer, Logger
 from Name.nn.batching import filter_data, Sampler, Collator
 from Name.nn.utils.schedules import make_schedule
