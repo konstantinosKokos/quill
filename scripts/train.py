@@ -84,6 +84,8 @@ def parse_args():
                         default='../data/config.json')
     parser.add_argument('--store_path', type=str, help='Where to store the trained model',
                         default='../data/model.pt')
+    parser.add_argument('--log_path', type=str, help='Where to log results',
+                        default='../data/log.txt')
     return parser.parse_args()
 
 
