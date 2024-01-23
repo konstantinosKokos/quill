@@ -34,16 +34,23 @@ class RMSNorm(Module):
 class TMHA(Module):
     def __init__(self, dim: int, num_heads: int, head_dim: int):
         super().__init__()
-        self.q_transformation = Linear(dim, head_dim * num_heads, bias=False)
-        self.k_transformation = Linear(dim, head_dim * num_heads, bias=False)
-        self.v_transformation = Linear(dim, dim, bias=False)
+        self.transformations = Linear(dim, head_dim * num_heads * 2 + dim, bias=False)
         self.wo = Linear(in_features=dim, out_features=dim, bias=False)
         self.num_heads = num_heads
+        self.qk_dim = num_heads * head_dim
+        self.dim = dim
 
-    def forward(self, queries: Tensor, keys: Tensor, values: Tensor, mask: Tensor) -> Tensor:
-        qs = self.q_transformation(queries).view(queries.size(0), queries.size(1), self.num_heads, -1)
-        ks = self.k_transformation(keys).view(queries.size(0), queries.size(1), self.num_heads, -1)
-        vs = self.v_transformation(values).view(queries.size(0), queries.size(1), self.num_heads, -1)
+    def forward(
+            self,
+            x: Tensor,
+            mask: Tensor,
+            rotator: Tensor) -> Tensor:
+        x = self.transformations(x)
+        qs = x[..., :self.qk_dim].view(x.size(0), x.size(1), self.num_heads, -1)
+        ks = x[..., self.qk_dim:(2*self.qk_dim)].view(x.size(0), x.size(1), self.num_heads, -1)
+        vs = x[..., 2*self.qk_dim:].view(x.size(0), x.size(1), self.num_heads, -1)
+        qs[mask] = torch.einsum('...ij,...hj->...hi', qs[mask], rotator[mask])
+        ks[mask] = torch.einsum('...ij,...hi->...hj', ks[mask], rotator[mask])
         out = taylor_atn_fn(qs, ks, vs, mask)
         return self.wo(out)
 
