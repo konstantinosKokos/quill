@@ -78,7 +78,7 @@ class TokenEmbedding(Module):
                 5 [Sort]
                 6 [Level]
                 7 [Literal]
-                8 [Abs]
+                _ [Abs]
             _ UnaryOp
                 8 [deBruijn]
             9 [oos]
