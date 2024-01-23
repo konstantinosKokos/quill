@@ -97,6 +97,7 @@ class TokenEmbedding(Module):
 
         content_embeddings = torch.zeros(
             size=(*token_types.size(), self.dim),
+            dtype=positional_encodings.dtype,
             device=token_types.device)
         content_embeddings[sos_mask] = self.embeddings.weight[0]
         content_embeddings[bop_mask] = self.embeddings.forward(token_values[bop_mask] + 1)

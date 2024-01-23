@@ -7,12 +7,18 @@ from Name.nn.training import TrainCfg, Trainer, Logger
 from Name.nn.batching import filter_data, Sampler, Collator
 from Name.nn.utils.schedules import make_schedule
 
-from torch import device
+import torch
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
 
 
-def train(config: TrainCfg, data_path: str, store_path: str, log_path: str, cast_to: str):
+def train(
+        config: TrainCfg,
+        data_path: str,
+        store_path: str,
+        log_path: str,
+        device: str,
+        dtype: torch.dtype = torch.float):
     logger = Logger(sys.stdout, log_path)
     sys.stdout = logger
     print(train_cfg)
@@ -80,6 +86,8 @@ def parse_args():
                         default='../data/model.pt')
     parser.add_argument('--log_path', type=str, help='Where to log results',
                         default='../data/log.txt')
+    parser.add_argument('--use_half', type=bool, help='Whether to use half-precision floats',
+                        default=False)
     return parser.parse_args()
 
 
@@ -91,4 +99,6 @@ if __name__ == '__main__':
         data_path=args.data_path,
         store_path=args.store_path,
         log_path=args.log_path,
-        cast_to='cuda')
+        device='cuda',
+        dtype=torch.half if args.use_half else torch.float
+    )
