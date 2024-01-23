@@ -35,11 +35,14 @@ class FileEncoder(Module):
             device=scope_sort.device)
 
         for rank in scope_sort.unique(sorted=True):
-            rank_mask = scope_sort == rank
+            rank_mask = scope_sort.eq(rank)
+            padding_mask = scope_asts.padding_mask[rank_mask]
+            max_seq_len = padding_mask.sum(-1).max().item()
+
             scope_reprs[rank_mask] = self.term_encoder.forward(
-                dense_features=scope_features[rank_mask],
-                padding_mask=scope_asts.padding_mask[rank_mask],
-                reference_mask=scope_asts.reference_mask[rank_mask],
+                dense_features=scope_features[rank_mask][:, :max_seq_len],
+                padding_mask=padding_mask[:, :max_seq_len],
+                reference_mask=scope_asts.reference_mask[rank_mask][:, :max_seq_len],
                 reference_ids=scope_asts.tokens[rank_mask][scope_asts.reference_mask[rank_mask]][:, 1],
                 reference_storage=scope_reprs
             )
