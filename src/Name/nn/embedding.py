@@ -43,15 +43,6 @@ class BinaryPathEncoder(Module):
     def forward(self, unique: Tensor) -> Tensor:
         return self.embed_positions(unique.cpu().tolist())
 
-    def apply_mapping(
-            self,
-            maps: Tensor,
-            embeddings: Tensor,
-            index: Tensor) -> Tensor:
-        flat_embeddings = embeddings.flatten(0, -2)
-        flat_index = torch.ravel(index)
-        return torch.einsum('bij,bj->bi', maps[flat_index, :], flat_embeddings)
-
     def pos_to_path(self, idx: int) -> list[int]:
         if idx in self._pos_to_path:
             return self._pos_to_path[idx]
@@ -85,10 +76,9 @@ class TokenEmbedding(Module):
             10 [mask]
         """
 
-    def forward(self, dense_batch: Tensor) -> Tensor:
+    def forward(self, dense_batch: Tensor) -> tuple[Tensor, Tensor]:
         token_types, token_values, node_positions = dense_batch
 
-        pad_mask = token_types != -1
         sos_mask = token_types == 0
         bop_mask = token_types == 1
         nop_mask = token_types == 2
@@ -107,13 +97,5 @@ class TokenEmbedding(Module):
         content_embeddings[bop_mask] = self.embeddings.forward(token_values[bop_mask] + 1)
         content_embeddings[nop_mask] = self.embeddings.forward(token_values[nop_mask] + 5)
         content_embeddings[oos_mask] = self.embeddings.weight[10]
-        content_embeddings[db_mask] = self.path_encoder.apply_mapping(
-            maps=positional_encodings,
-            embeddings=torch.ones_like(content_embeddings[db_mask]),
-            index=db_paths)
-        content_embeddings[pad_mask] = self.path_encoder.apply_mapping(
-            maps=positional_encodings,
-            embeddings=content_embeddings[pad_mask],
-            index=inverse[pad_mask])
-        content_embeddings = content_embeddings
-        return content_embeddings
+        content_embeddings[db_mask] = positional_encodings[db_paths, :].sum(-1)
+        return content_embeddings, positional_encodings[inverse, :]

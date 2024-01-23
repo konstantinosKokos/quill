@@ -1,5 +1,3 @@
-import pdb
-
 from ..data.tokenization import TokenizedAST, TokenizedFile
 
 from typing import NamedTuple, Iterator, TypeVar
