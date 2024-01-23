@@ -39,9 +39,9 @@ def train(
 
     train_sampler = Sampler(train_files)
     epoch_size = train_sampler.itersize(config['batch_size_s'] * config['backprop_every'], config['batch_size_h'])
-    collator = Collator(pad_value=-1, device=cast_to, allow_self_loops=config['allow_self_loops'])
+    collator = Collator(pad_value=-1, device=device, allow_self_loops=config['allow_self_loops'])
 
-    model = Trainer(config['model_config']).to(device(cast_to))
+    model = Trainer(config['model_config']).to(device(device)).to(dtype)
     optimizer = AdamW(params=model.parameters(), lr=1, weight_decay=1e-02)
     schedule = make_schedule(warmup_steps=config['warmup_epochs'] * epoch_size,
                              warmdown_steps=config['warmdown_epochs'] * epoch_size,
