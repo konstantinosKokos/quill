@@ -9,12 +9,18 @@ from Name.nn.training import TrainCfg, Trainer, Logger
 from Name.nn.batching import filter_data, Sampler, Collator
 from Name.nn.utils.schedules import make_schedule
 
-from torch import device
+import torch
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
 
 
-def train(config: TrainCfg, data_path: str, store_path: str, log_path: str, cast_to: str):
+def train(
+        config: TrainCfg,
+        data_path: str,
+        store_path: str,
+        log_path: str,
+        device: str,
+        dtype: torch.dtype = torch.float):
     logger = Logger(sys.stdout, log_path)
     sys.stdout = logger
     print(train_cfg)
@@ -35,9 +41,9 @@ def train(config: TrainCfg, data_path: str, store_path: str, log_path: str, cast
 
     train_sampler = Sampler(train_files)
     epoch_size = train_sampler.itersize(config['batch_size_s'] * config['backprop_every'], config['batch_size_h'])
-    collator = Collator(pad_value=-1, device=cast_to, allow_self_loops=config['allow_self_loops'])
+    collator = Collator(pad_value=-1, device=device, allow_self_loops=config['allow_self_loops'])
 
-    model = Trainer(config['model_config']).to(device(cast_to))
+    model = Trainer(config['model_config']).to(device(device)).to(dtype)
     optimizer = AdamW(params=model.parameters(), lr=1, weight_decay=1e-02)
     schedule = make_schedule(warmup_steps=config['warmup_epochs'] * epoch_size,
                              warmdown_steps=config['warmdown_epochs'] * epoch_size,
@@ -82,6 +88,8 @@ def parse_args():
                         default='../data/model.pt')
     parser.add_argument('--log_path', type=str, help='Where to log results',
                         default='../data/log.txt')
+    parser.add_argument('--use_half', type=bool, help='Whether to use half-precision floats',
+                        default=False)
     return parser.parse_args()
 
 
@@ -93,4 +101,6 @@ if __name__ == '__main__':
         data_path=args.data_path,
         store_path=args.store_path,
         log_path=args.log_path,
-        cast_to='cuda')
+        device='cuda',
+        dtype=torch.half if args.use_half else torch.float
+    )

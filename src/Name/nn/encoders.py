@@ -28,7 +28,11 @@ class FileEncoder(Module):
         scope_features = self.embedding.forward(scope_asts.tokens.permute(2, 0, 1))
         hole_features = self.embedding.forward(hole_asts.tokens.permute(2, 0, 1))
 
-        scope_reprs = torch.zeros(scope_asts.num_trees, self.dim, dtype=torch.float, device=scope_sort.device)
+        scope_reprs = torch.zeros(
+            scope_asts.num_trees,
+            self.dim,
+            dtype=scope_features.dtype,
+            device=scope_sort.device)
 
         for rank in scope_sort.unique(sorted=True):
             rank_mask = scope_sort == rank

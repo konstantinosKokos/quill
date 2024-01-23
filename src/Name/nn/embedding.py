@@ -26,14 +26,18 @@ class BinaryPathEncoder(Module):
 
     def embed_positions(self, positions: list[int]) -> Tensor:
         primitives = self.primitives
-        path_words = [torch.tensor(self.pos_to_path(pos), device=self.primitives.device, dtype=torch.long)
-                      if pos > 0 else torch.empty(0, device=self.primitives.device, dtype=torch.long)
-                      for pos in positions]
-        path_words = pad_sequence(path_words, padding_value=2, batch_first=True)
+        path_words = pad_sequence(
+            [torch.tensor(self.pos_to_path(pos), device=self.primitives.device, dtype=torch.long)
+             if pos > 0 else torch.empty(0, device=self.primitives.device, dtype=torch.long)
+             for pos in positions], padding_value=2, batch_first=True)
         maps = self.identity.repeat(len(positions), 1, 1)
-        for depth in range(path_words.shape[1]):
-            maps[path_words[:, depth] == 0] = linear(maps[path_words[:, depth] == 0], primitives[0])
-            maps[path_words[:, depth] == 1] = linear(maps[path_words[:, depth] == 1], primitives[1])
+
+        left_mask = path_words == 0
+        right_mask = path_words == 1
+
+        for step in range(path_words.size(1)):
+            maps[left_mask[:, step]] = linear(maps[left_mask[:, step]], primitives[0])
+            maps[right_mask[:, step]] = linear(maps[right_mask[:, step]], primitives[1])
         return maps
 
     def forward(self, unique: Tensor) -> Tensor:
@@ -97,6 +101,7 @@ class TokenEmbedding(Module):
 
         content_embeddings = torch.zeros(
             size=(*token_types.size(), self.dim),
+            dtype=positional_encodings.dtype,
             device=token_types.device)
         content_embeddings[sos_mask] = self.embeddings.weight[0]
         content_embeddings[bop_mask] = self.embeddings.forward(token_values[bop_mask] + 1)
