@@ -19,8 +19,7 @@ def train(
         data_path: str,
         store_path: str,
         log_path: str,
-        device: str,
-        dtype: torch.dtype = torch.float):
+        device: str):
     logger = Logger(sys.stdout, log_path)
     sys.stdout = logger
     print(train_cfg)
@@ -43,7 +42,7 @@ def train(
     epoch_size = train_sampler.itersize(config['batch_size_s'] * config['backprop_every'], config['batch_size_h'])
     collator = Collator(pad_value=-1, device=device, allow_self_loops=config['allow_self_loops'])
 
-    model = Trainer(config['model_config']).to(device).to(dtype)
+    model = Trainer(config['model_config']).to(device)
     optimizer = AdamW(params=model.parameters(), lr=1, weight_decay=1e-02)
     schedule = make_schedule(warmup_steps=config['warmup_epochs'] * epoch_size,
                              warmdown_steps=config['warmdown_epochs'] * epoch_size,
@@ -86,8 +85,6 @@ def parse_args():
                         default='../data/config.json')
     parser.add_argument('--store_path', type=str, help='Where to store the trained model',
                         default='../data/model.pt')
-    parser.add_argument('--log_path', type=str, help='Where to log results',
-                        default='../data/log.txt')
     return parser.parse_args()
 
 
@@ -100,5 +97,4 @@ if __name__ == '__main__':
         store_path=args.store_path,
         log_path=args.log_path,
         device='cuda',
-        dtype=torch.half if train_cfg['half_precision'] else torch.float
     )
