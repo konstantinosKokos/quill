@@ -24,11 +24,10 @@ def margin_ranking(
         targets: Tensor,
         edge_index: Tensor,
         margin: float = 0.1,
-        hard_filter: bool = True,
-        pos_strategy: Strategy = Strategy.AVE,
-        neg_strategy: Strategy = Strategy.MAX,
-        positive_sampling: float = 0.95,
-        negative_sampling: float = 0.95) -> Tensor:
+        pos_strategy: Strategy = Strategy.MIN,
+        neg_strategy: Strategy = Strategy.AVE,
+        positive_sampling: float = 1.,
+        negative_sampling: float = 0.6) -> Tensor:
     if len(preds) == 0:
         return preds
 
@@ -41,11 +40,6 @@ def margin_ranking(
     negative_mask = edge_index[1, negative_mask]
 
     negatives = neg_strategy(negative_preds, negative_mask, size=max(edge_index[1]) + 1)
-    if hard_filter:
-        negative_pairs = negatives[edge_index[1, positive_mask]]
-        difference_mask = negative_pairs > positive_preds
-        positive_preds = positive_preds[difference_mask]
-        positive_mask = positive_mask[difference_mask]
     positives = pos_strategy(positive_preds, positive_mask, size=max(edge_index[1]) + 1)
 
     return torch.clamp(negatives - positives, min=0)
