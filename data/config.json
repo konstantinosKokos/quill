@@ -1,6 +1,6 @@
 {
     "model_config": {
-        "depth": 8,
+        "depth": 6,
         "num_heads": 8,
         "dim": 256,
         "head_dim": 8},
@@ -9,11 +9,12 @@
     "warmdown_epochs": 97,
     "batch_size_s": 1,
     "batch_size_h": 8,
-    "max_tokens": 32768,
+    "max_tokens": 8192,
     "backprop_every": 1,
     "max_lr": 5e-4,
     "min_lr": 1e-8,
     "allow_self_loops": "False",
+    "half_precision": "True",
     "train_files": [
         "Tactic.RingSolver.Core.Expression",
         "Data.List.Relation.Unary.Grouped.Properties",
