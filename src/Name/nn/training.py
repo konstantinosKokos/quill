@@ -29,6 +29,7 @@ class TrainCfg(TypedDict):
     dev_files:          list[str]
     test_files:         list[str]
     allow_self_loops:   bool
+    half_precision:     bool
 
 
 @dataclass

@@ -41,7 +41,7 @@ def train(
     epoch_size = train_sampler.itersize(config['batch_size_s'] * config['backprop_every'], config['batch_size_h'])
     collator = Collator(pad_value=-1, device=device, allow_self_loops=config['allow_self_loops'])
 
-    model = Trainer(config['model_config']).to(device(device)).to(dtype)
+    model = Trainer(config['model_config']).to(device).to(dtype)
     optimizer = AdamW(params=model.parameters(), lr=1, weight_decay=1e-02)
     schedule = make_schedule(warmup_steps=config['warmup_epochs'] * epoch_size,
                              warmdown_steps=config['warmdown_epochs'] * epoch_size,
@@ -86,19 +86,17 @@ def parse_args():
                         default='../data/model.pt')
     parser.add_argument('--log_path', type=str, help='Where to log results',
                         default='../data/log.txt')
-    parser.add_argument('--use_half', type=bool, help='Whether to use half-precision floats',
-                        default=False)
     return parser.parse_args()
 
 
 if __name__ == '__main__':
     args = parse_args()
-    train_cfg = json.load(open(args.config_path, 'r'))
+    train_cfg: TrainCfg = json.load(open(args.config_path, 'r'))
     train(
         config=train_cfg,
         data_path=args.data_path,
         store_path=args.store_path,
         log_path=args.log_path,
         device='cuda',
-        dtype=torch.half if args.use_half else torch.float
+        dtype=torch.half if train_cfg['half_precision'] else torch.float
     )
