@@ -13,8 +13,8 @@
     "backprop_every": 1,
     "max_lr": 5e-4,
     "min_lr": 1e-8,
-    "allow_self_loops": "False",
-    "half_precision": "True",
+    "allow_self_loops": false,
+    "half_precision": true,
     "train_files": [
         "Tactic.RingSolver.Core.Expression",
         "Data.List.Relation.Unary.Grouped.Properties",
