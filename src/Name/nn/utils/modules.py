@@ -49,8 +49,8 @@ class TMHA(Module):
         qs = x[..., :self.qk_dim].view(x.size(0), x.size(1), self.num_heads, -1)
         ks = x[..., self.qk_dim:(2*self.qk_dim)].view(x.size(0), x.size(1), self.num_heads, -1)
         vs = x[..., 2*self.qk_dim:].view(x.size(0), x.size(1), self.num_heads, -1)
-        qs[mask] = torch.einsum('...ij,...hj->...hi', qs[mask], rotator[mask])
-        ks[mask] = torch.einsum('...ij,...hi->...hj', ks[mask], rotator[mask])
+        qs[mask] = torch.einsum('...ij,...hj->...hi', rotator[mask], qs[mask])
+        ks[mask] = torch.einsum('...ij,...hi->...hj', rotator[mask], ks[mask])
         out = taylor_atn_fn(qs, ks, vs, mask)
         return self.wo(out)
 
