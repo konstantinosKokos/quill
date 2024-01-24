@@ -23,7 +23,7 @@ def margin_ranking(
         preds: Tensor,
         targets: Tensor,
         edge_index: Tensor,
-        margin: float = 0.1,
+        margin: float = 0.5,
         pos_strategy: Strategy = Strategy.MIN,
         neg_strategy: Strategy = Strategy.AVE,
         positive_sampling: float = 1.,
@@ -35,14 +35,15 @@ def margin_ranking(
     negative_mask = targets.logical_not() & (torch.rand_like(targets, dtype=torch.float) < negative_sampling)
 
     positive_preds = preds[positive_mask]
-    negative_preds = preds[negative_mask] + margin
+    negative_preds = preds[negative_mask]
     positive_mask = edge_index[1, positive_mask]
     negative_mask = edge_index[1, negative_mask]
 
     negatives = neg_strategy(negative_preds, negative_mask, size=max(edge_index[1]) + 1)
     positives = pos_strategy(positive_preds, positive_mask, size=max(edge_index[1]) + 1)
 
-    return torch.clamp(negatives - positives, min=0)
+    loss = margin + negatives - positives
+    return loss[loss > 0]
 
 
 def rank_candidates(x: Tensor, batch_ids: Tensor) -> tuple[Tensor, Tensor]:
