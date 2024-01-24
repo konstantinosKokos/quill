@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pdb
+
 import torch
 from torch import Tensor
 from torch.nn import Module, Parameter, Embedding
@@ -97,5 +99,5 @@ class TokenEmbedding(Module):
         content_embeddings[bop_mask] = self.embeddings.forward(token_values[bop_mask] + 1)
         content_embeddings[nop_mask] = self.embeddings.forward(token_values[nop_mask] + 5)
         content_embeddings[oos_mask] = self.embeddings.weight[10]
-        content_embeddings[db_mask] = positional_encodings[db_paths, :].sum(-1)
+        content_embeddings[db_mask] = positional_encodings[db_paths] @ self.embeddings.weight[8]
         return content_embeddings, positional_encodings[inverse, :]
