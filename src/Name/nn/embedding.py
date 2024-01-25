@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pdb
-
 import torch
 from torch import Tensor
 from torch.nn import Module, Parameter, Embedding
@@ -53,10 +51,10 @@ class BinaryPathEncoder(Module):
 
 
 class TokenEmbedding(Module):
-    def __init__(self,
-                 dim: int):
+    def __init__(self, dim: int, scope_dropout: float):
         super(TokenEmbedding, self).__init__()
         self.dim = dim
+        self.scope_dropout = scope_dropout
         self.path_encoder = BinaryPathEncoder(dim=dim)
         self.embeddings = Embedding(num_embeddings=11, embedding_dim=dim)
         """
@@ -84,7 +82,11 @@ class TokenEmbedding(Module):
         sos_mask = token_types == 0
         bop_mask = token_types == 1
         nop_mask = token_types == 2
-        oos_mask = (token_types == 3) & (token_values == -1)
+        scope_mask = (token_types == 3)
+        oos_mask = scope_mask & (token_values == -1)
+        if self.training and self.scope_dropout > 0:
+            drop_mask = torch.rand(scope_mask.size(), device=oos_mask.device) < self.scope_dropout
+            oos_mask = scope_mask & (drop_mask | oos_mask)
         db_mask = (token_types == 4)
 
         unique_paths, inverse = node_positions.unique(return_inverse=True)

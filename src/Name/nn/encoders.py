@@ -18,7 +18,7 @@ class FileEncoder(Module):
             dim=dim,
             head_dim=head_dim,
             dropout_rate=dropout_rate)
-        self.embedding = TokenEmbedding(dim=head_dim)
+        self.embedding = TokenEmbedding(dim=head_dim, scope_dropout=dropout_rate)
         self.emb_proj = Linear(in_features=head_dim, out_features=self.dim, bias=False)
 
     def forward(self,
