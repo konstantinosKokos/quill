@@ -10,6 +10,8 @@ def infoNCE(preds: Tensor,
             positive_sampling: float = 1.,
             negative_sampling: float = 1.,
             temperature: float = 0.5) -> Tensor:
+    if len(preds) == 0:
+        return preds
     preds = torch.exp(preds/temperature)
     positive_mask = targets & (torch.rand_like(targets, dtype=torch.float) < positive_sampling)
     negative_mask = targets.logical_not() & (torch.rand_like(targets, dtype=torch.float) < negative_sampling)
