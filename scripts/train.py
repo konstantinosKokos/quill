@@ -21,7 +21,7 @@ def train(
         device: str):
     logger = Logger(sys.stdout, log_path)
     sys.stdout = logger
-    print(train_cfg)
+    print(train_cfg['model_config'])
 
     with open(data_path, 'rb') as f:
         files = pickle.load(f)
