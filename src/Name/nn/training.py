@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 from .model import ModelCfg, Model
 from .batching import Batch
-from .utils.ranking import margin_ranking, evaluate_rankings
+from .utils.ranking import infoNCE, evaluate_rankings
 
 
 class TrainCfg(TypedDict):
@@ -49,7 +49,7 @@ class Trainer(Model):
                 scope_reprs=scope_reprs,
                 hole_reprs=hole_reprs,
                 edge_index=batch.edge_index)
-        return predictions, margin_ranking(predictions, batch.premises.bool(), batch.edge_index)
+        return predictions, infoNCE(predictions, batch.premises.bool(), batch.edge_index)
 
     def to_stats(self, batch: Batch, predictions: Tensor, loss: Tensor) -> TrainStats:
         zipped = tuple(zip(*evaluate_rankings(predictions, batch.edge_index[1], batch.premises)))

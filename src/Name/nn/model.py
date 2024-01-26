@@ -36,7 +36,7 @@ class Model(Module):
         source_index, target_index = edge_index
         sources = scope_reprs[source_index]
         targets = hole_reprs[target_index]
-        return torch.cosine_similarity(sources, targets)
+        return self.lemma_predictor(sources * targets).squeeze(-1)
 
     def save(self, path: str) -> None:
         torch.save(self.state_dict(), path)
