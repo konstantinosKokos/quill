@@ -409,7 +409,6 @@
         "Data.Vec.Instances",
         "Data.Product.Function.NonDependent.Setoid",
         "Function.Structures",
-        "Data.Product.Function.Dependent.Propositional",
         "Data.List.Relation.Binary.Permutation.Setoid",
         "Function.Properties.Equivalence",
         "Codata.Musical.M",
@@ -708,8 +707,7 @@
         "Data.Vec.Relation.Unary.Unique.Setoid.Properties",
         "Relation.Nullary.Sum",
         "Data.List.Relation.Binary.Lex.NonStrict",
-        "Data.Nat.Binary",
-        "Algebra.Solver.Monoid"
+        "Data.Nat.Binary"
     ],
     "dev_files": [
         "Algebra.Properties.CommutativeMonoid",
@@ -834,6 +832,8 @@
         "Data.Vec.Membership.DecSetoid",
         "Data.Maybe.Relation.Unary.Any",
         "Data.List.Relation.Unary.Enumerates.Setoid.Properties",
-        "Algebra.Morphism.MonoidMonomorphism"
+        "Algebra.Morphism.MonoidMonomorphism",
+        "Algebra.Solver.Monoid",
+        "Data.Product.Function.Dependent.Propositional"
     ]
 }
