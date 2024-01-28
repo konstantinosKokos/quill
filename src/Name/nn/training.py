@@ -44,11 +44,7 @@ class TrainStats:
 
 class Trainer(Model):
     def compute_loss(self, batch: Batch) -> tuple[Tensor, Tensor]:
-        scope_reprs, hole_reprs = self.encode(batch)
-        predictions = self.match(
-                scope_reprs=scope_reprs,
-                hole_reprs=hole_reprs,
-                edge_index=batch.edge_index)
+        predictions = self.get_predictions(batch)
         return predictions, infoNCE(predictions, batch.premises.bool(), batch.edge_index)
 
     def to_stats(self, batch: Batch, predictions: Tensor, loss: Tensor) -> TrainStats:

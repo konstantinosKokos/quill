@@ -38,6 +38,10 @@ class Model(Module):
         targets = hole_reprs[target_index]
         return self.lemma_predictor(sources * targets).squeeze(-1)
 
+    def get_predictions(self, batch: Batch) -> Tensor:
+        scope_reprs, hole_reprs = self.encode(batch)
+        return self.match(scope_reprs=scope_reprs, hole_reprs=hole_reprs, edge_index=batch.edge_index)
+
     def save(self, path: str) -> None:
         torch.save(self.state_dict(), path)
 

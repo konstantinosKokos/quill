@@ -1,10 +1,10 @@
 import torch
 
-from .data.agda.reader import File
-from .data.tokenization import tokenize_file
-from .nn.model import Model, ModelCfg
-from .nn.batching import Collator
-from .nn.utils.ranking import rank_candidates
+from ..data.agda.reader import File
+from ..data.tokenization import tokenize_file
+from .model import Model, ModelCfg
+from .batching import Collator
+from .utils.ranking import rank_candidates
 
 
 class Inferer(Model):
@@ -26,12 +26,3 @@ class Inferer(Model):
             ranked, numels = rank_candidates(pair_scores, batch.edge_index[1])
             return [[tokenized.backrefs[idx] for idx in perm[:valid]]
                     for perm, valid in zip(ranked.cpu().tolist(), numels.cpu().tolist())]
-
-
-# from Name.inference import Inferer
-# from scripts.train import model_cfg, dev_files
-#
-# inferer = Inferer(model_cfg, 'cuda')
-# inferer.load('./scripts/model.pt', 'cuda')
-# from Name.data.agda.reader import parse_file
-# out = inferer.select_premises(f := parse_file(f'./data/stdlib/{dev_files[43]}.json'))

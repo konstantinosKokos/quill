@@ -6,7 +6,7 @@ import sys
 sys.path.extend(['/home/kogkalk1/Projects/nagda/src'])
 
 from Name.nn.training import TrainCfg, Trainer, Logger
-from Name.nn.batching import filter_data, Sampler, Collator
+from Name.nn.batching import discard_empty, split_by_length, Sampler, Collator
 from Name.nn.utils.schedules import make_schedule
 
 from torch.optim import AdamW
@@ -26,14 +26,12 @@ def train(
     with open(data_path, 'rb') as f:
         files = pickle.load(f)
         print(f'Read {len(files)} files with {sum(len(file.hole_asts) for file in files)} holes.')
-
-    files = list(filter_data(
-        files=files,
-        max_tokens=config['max_tokens']))
-    print(f'Kept {len(files)} files with {sum(len(file.hole_asts) for file in files)} holes.')
-
+    files = discard_empty(files)
+    print(f'Of which {len(files)} have at least 1 hole.')
     train_files = [file for file in files if file.file.name in config['train_files']]
     dev_files = [file for file in files if file.file.name in config['dev_files']]
+    train_files, _ = split_by_length(train_files, config['max_tokens'])
+    dev_files, _ = split_by_length(dev_files, config['max_tokens'])
     print(f'Training on {len(train_files)} files with {sum(len(file.hole_asts) for file in train_files)} holes.')
     print(f'Evaluating on {len(dev_files)} files with {sum(len(file.hole_asts) for file in dev_files)} holes.')
 

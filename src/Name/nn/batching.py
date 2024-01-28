@@ -137,8 +137,13 @@ class Collator:
         )
 
 
-def filter_data(files: list[TokenizedFile], max_tokens: int) -> Iterator[TokenizedFile]:
-    return (file for file in files if sum(len(ast) for ast in file.scope_asts) <= max_tokens and len(file.hole_asts))
+def discard_empty(files: list[TokenizedFile]) -> list[TokenizedFile]:
+    return [file for file in files if len(file.hole_asts)]
+
+
+def split_by_length(files: list[TokenizedFile], max_tokens: int) -> tuple[list[TokenizedFile], list[TokenizedFile]]:
+    flags = [sum(len(ast) for ast in file.scope_asts) <= max_tokens for file in files]
+    return [files[i] for i, flag in enumerate(flags) if flag], [files[i] for i, flag in enumerate(flags) if not flag]
 
 
 _T = TypeVar('_T')
