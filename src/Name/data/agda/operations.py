@@ -14,7 +14,8 @@ def enum_references(file: File[Name]) -> tuple[File[int], dict[int, Name]]:
                 name=name_to_index[entry.name],
                 type=entry.type.substitute(name_to_index),
                 definition=entry.definition.substitute(name_to_index),
-                holes=[hole.substitute(name_to_index) for hole in entry.holes])
+                holes=[hole.substitute(name_to_index) for hole in entry.holes],
+                is_import=entry.is_import)
             for entry in file.scope])
     return file, index_to_name
 
@@ -59,7 +60,7 @@ def top_sort_entries(file: File[Name]) -> dict[Name, int]:
         pre_resolved=dict())
 
 
-def merge_contexts(file: File[Name], merge_holes: bool, unique_only: bool) -> File[Name]:
+def merge_contexts(file: File[Name], merge_holes: bool, unique_only: bool, validate: bool = True) -> File[Name]:
     def ctx_to_pi(hole: Hole[Name]) -> Hole[Name]:
         return Hole(
             context=(),
@@ -84,8 +85,10 @@ def merge_contexts(file: File[Name], merge_holes: bool, unique_only: bool) -> Fi
                 name=entry.name,
                 type=entry.type,
                 definition=entry.definition,
-                holes=f([ctx_to_pi(h) for h in entry.holes]))
-            for entry in file.scope])
+                holes=f([ctx_to_pi(h) for h in entry.holes]),
+                is_import=entry.is_import)
+            for entry in file.scope],
+        validate=validate)
 
 
 def _merge_holes(holes: list[Hole[Name]]) -> list[Hole[Name]]:

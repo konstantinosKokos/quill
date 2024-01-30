@@ -20,10 +20,12 @@ class _AgdaExpr(ABC, Generic[Name]):
 class File(_AgdaExpr[Name]):
     name: str
     scope: list[ScopeEntry[Name]]
+    validate: bool = True
 
     def __post_init__(self):
-        assert self.valid_reference_structure(), 'Invalid reference structure.'
-        assert self.unique_entry_names(), 'Duplicate entry names.'
+        if self.validate:
+            assert self.valid_reference_structure(), 'Invalid reference structure.'
+            assert self.unique_entry_names(), 'Duplicate entry names.'
 
     def valid_reference_structure(self) -> bool:
         names = [entry.name for entry in self.scope]
@@ -66,6 +68,7 @@ class NamedType(_AgdaExpr[Name]):
 class ScopeEntry(NamedType[Name]):
     definition: AgdaDefinition[Name]
     holes: list[Hole[Name]]
+    is_import: bool
 
     def __repr__(self) -> str:
         return f'{super(ScopeEntry, self).__repr__()} ({len(self.holes)} holes)'
@@ -75,7 +78,8 @@ class ScopeEntry(NamedType[Name]):
             name=names[self.name],
             type=self.type.substitute(names),
             definition=self.definition.substitute(names),
-            holes=[hole.substitute(names) for hole in self.holes])
+            holes=[hole.substitute(names) for hole in self.holes],
+            is_import=self.is_import)
 
 
 @dataclass(frozen=True)

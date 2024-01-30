@@ -19,11 +19,11 @@ def debug(wrapped: Callable[[dict], T]) -> Callable[[dict], T]:
     return wrapper if DEBUG else wrapped
 
 
-def parse_dir(directory: str, strict: bool) -> Iterator[File[str]]:
+def parse_dir(directory: str, strict: bool, validate: bool = True) -> Iterator[File[str]]:
     for file in listdir(directory):
         print(f'Parsing {file}')
         try:
-            yield parse_file(path.join(directory, file))
+            yield parse_file(path.join(directory, file), validate)
         except AssertionError as e:
             if strict:
                 raise e
@@ -31,16 +31,17 @@ def parse_dir(directory: str, strict: bool) -> Iterator[File[str]]:
             continue
 
 
-def parse_file(filepath: str) -> File[str]:
+def parse_file(filepath: str, validate: bool) -> File[str]:
     with open(filepath, 'r') as f:
-        return parse_data(load(f))
+        return parse_data(load(f), validate=validate)
 
 
-def parse_data(json: dict) -> File[str]:
+def parse_data(json: dict, validate: bool) -> File[str]:
     return File(
         name=json['name'],
         scope=[parse_scope_entry(d, True) for d in json['scope-global']] +
-              [parse_scope_entry(d, False) for d in json['scope-local']])
+              [parse_scope_entry(d, False) for d in json['scope-local']],
+        validate=validate)
 
 
 def parse_scope_entry(json: dict, is_import: bool) -> ScopeEntry[str]:
@@ -48,7 +49,8 @@ def parse_scope_entry(json: dict, is_import: bool) -> ScopeEntry[str]:
         name=json['name'],
         type=parse_term(json['type']),
         definition=parse_definition(json['definition']),
-        holes=[] if is_import else [parse_hole(hole) for hole in json['holes']])
+        holes=[] if is_import else [parse_hole(hole) for hole in json['holes']],
+        is_import=is_import)
 
 
 @debug
