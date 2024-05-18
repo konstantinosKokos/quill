@@ -1,17 +1,16 @@
 import torch
 from torch import Tensor
+from torch.nn.functional import elu
 
 
-def taylor_2(x: Tensor) -> Tensor:
-    x0 = torch.ones(x.size()[:-1], device=x.device, dtype=x.dtype).unsqueeze(-1)
-    x2 = (torch.einsum('...i,...j->...ij', x, x)).flatten(-2) * (0.5 ** 0.5)
-    return torch.cat((x0, x, x2), dim=-1)
+def phi(x: Tensor) -> Tensor:
+    return elu(x + 1)
 
 
-def taylor_atn_fn(queries: Tensor, keys: Tensor, values: Tensor, mask: Tensor) -> Tensor:
+def atn_fn(queries: Tensor, keys: Tensor, values: Tensor, mask: Tensor) -> Tensor:
     batch_size, seq_len, num_heads, dk = keys.size()
     queries = queries * (dk ** -0.5)
-    queries, keys = map(taylor_2, (queries, keys))
+    queries, keys = map(phi, (queries, keys))
 
     keys = keys.masked_fill(~mask[:, :, None, None], value=0.)
     values = values.masked_fill(~mask[:, :, None, None], value=0.)
