@@ -44,6 +44,15 @@ class TokenizedFile(NamedTuple):
     premises:           list[list[int]]
 
 
+class TokenizedPPs(NamedTuple):
+    file:               File[str]
+    entry_sort:         list[int]
+    scope_strings:      list[str]
+    hole_to_scope:      list[int]
+    hole_strings:       list[str]
+    premises:           list[list[int]]
+
+
 def tokenize_file(original: File[str], merge_holes: bool = True, unique_only: bool = True) -> TokenizedFile:
     merged = merge_contexts(original, merge_holes=merge_holes, unique_only=unique_only)
     anonymous, backrefs = enum_references(merged)
@@ -51,7 +60,7 @@ def tokenize_file(original: File[str], merge_holes: bool = True, unique_only: bo
     zipped_scopes = tuple(zip(*[
         (i, tokenize_ast(term_to_ast(entry.type, 1, ()))) for i, entry in enumerate(anonymous.scope)]))
     zipped_holes = tuple(zip(*[
-        (i, tokenize_ast(term_to_ast(hole.goal, 1, ())), [n for lemma in hole.premises if (n := lemma.name) != 1])
+        (i, tokenize_ast(term_to_ast(hole.goal, 1, ())), [n for lemma in hole.premises if (n := lemma.name) != -1])
         for i, entry in enumerate(anonymous.scope) for hole in entry.holes]))
     scope_positions, scope_asts = zipped_scopes or ([], [])
     hole_to_scope, hole_asts, premises = zipped_holes or ([], [], [])
@@ -62,6 +71,24 @@ def tokenize_file(original: File[str], merge_holes: bool = True, unique_only: bo
         scope_asts=scope_asts,
         hole_to_scope=hole_to_scope,
         hole_asts=hole_asts,
+        premises=premises
+    )
+
+
+def tokenize_to_pps(original: File[str]) -> TokenizedPPs:
+    entry_sort = top_sort_entries(original)
+    zipped_scopes = tuple(zip(*[(i, entry.pretty) for i, entry in enumerate(original.scope)]))
+    zipped_holes = tuple(zip(*[
+        (i, hole.pretty, [n for lemma in hole.premises if (n := lemma.name) != -1])
+        for i, entry in enumerate(original.scope) for hole in entry.holes]))
+    scope_positions, scope_strings = zipped_scopes or ([], [])
+    hole_to_scope, hole_strings, premises = zipped_holes or ([], [], [])
+    return TokenizedPPs(
+        file=original,
+        entry_sort=[entry_sort[entry.name] for entry in original.scope],
+        scope_strings=scope_strings,
+        hole_to_scope=hole_to_scope,
+        hole_strings=hole_strings,
         premises=premises
     )
 

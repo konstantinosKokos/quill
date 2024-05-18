@@ -86,7 +86,8 @@ def merge_contexts(file: File[Name], merge_holes: bool, unique_only: bool, valid
                 type=entry.type,
                 definition=entry.definition,
                 holes=f([ctx_to_pi(h) for h in entry.holes]),
-                is_import=entry.is_import)
+                is_import=entry.is_import,
+                pretty=entry.pretty)
             for entry in file.scope],
         validate=validate)
 
