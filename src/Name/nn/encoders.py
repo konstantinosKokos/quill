@@ -8,6 +8,16 @@ from .utils.modules import EncoderLayer
 from .embedding import TokenEmbedding
 
 
+def get_pe(d_model: int, length: int) -> Tensor:
+    pe = torch.zeros(length, d_model)
+    position = torch.arange(0, length).unsqueeze(1)
+    div_term = torch.exp((torch.arange(0, d_model, 2, dtype=torch.float) *
+                         -(torch.log(torch.tensor(10000.0)) / d_model)))
+    pe[:, 0::2] = torch.sin(position.float() * div_term)
+    pe[:, 1::2] = torch.cos(position.float() * div_term)
+    return pe
+
+
 class FileEncoder(Module):
     def __init__(self, num_layers: int, num_heads: int, dim: int, head_dim: int, dropout_rate: float):
         super(FileEncoder, self).__init__()
@@ -21,15 +31,19 @@ class FileEncoder(Module):
         self.embedding = TokenEmbedding(dim=head_dim, scope_dropout=dropout_rate)
         self.emb_proj = Linear(in_features=head_dim, out_features=self.dim, bias=False)
 
+        self.register_buffer('pe', get_pe(dim, 500))
+
     def forward(self,
                 scope_asts: BatchedASTs,
                 scope_sort: Tensor,
                 hole_asts: BatchedASTs) -> tuple[Tensor, Tensor]:
 
-        scope_features, scope_rotator = self.embedding.forward(scope_asts.tokens.permute(2, 0, 1))
-        hole_features, hole_rotator = self.embedding.forward(hole_asts.tokens.permute(2, 0, 1))
+        scope_features, _ = self.embedding.forward(scope_asts.tokens.permute(2, 0, 1))
+        hole_features, _ = self.embedding.forward(hole_asts.tokens.permute(2, 0, 1))
         scope_features = self.emb_proj(scope_features)
         hole_features = self.emb_proj(hole_features)
+        scope_features = scope_features + self.pe[None, :scope_features.size(1)]
+        hole_features = hole_features + self.pe[None, :scope_features.size(1)]
 
         scope_reprs = torch.zeros(
             scope_asts.num_trees,
@@ -48,7 +62,6 @@ class FileEncoder(Module):
                 reference_mask=scope_asts.reference_mask[rank_mask][:, :max_seq_len],
                 reference_ids=scope_asts.tokens[rank_mask][scope_asts.reference_mask[rank_mask]][:, 1],
                 reference_storage=scope_reprs,
-                rotator=scope_rotator[rank_mask][:, :max_seq_len]
             )
         hole_reprs = self.term_encoder.forward(
             dense_features=hole_features,
@@ -56,7 +69,6 @@ class FileEncoder(Module):
             reference_mask=hole_asts.reference_mask,
             reference_ids=hole_asts.tokens[hole_asts.reference_mask][:, 1],
             reference_storage=scope_reprs,
-            rotator=hole_rotator
         )
         return scope_reprs, hole_reprs
 
@@ -76,11 +88,11 @@ class TermEncoder(Module):
                 padding_mask: Tensor,
                 reference_mask: Tensor,
                 reference_ids: Tensor,
-                reference_storage: Tensor,
-                rotator: Tensor) -> Tensor:
+                reference_storage: Tensor
+                ) -> Tensor:
         dense_features[reference_mask] = reference_storage[reference_ids]
 
         layer: EncoderLayer
         for layer in self.encoder:
-            dense_features = layer.forward(dense_features, padding_mask, rotator)
+            dense_features = layer.forward(dense_features, padding_mask)
         return dense_features[:, 0]
