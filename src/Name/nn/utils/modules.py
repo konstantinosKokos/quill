@@ -3,7 +3,7 @@ from torch import Tensor
 from torch.nn import Module, Parameter, Linear, Dropout
 from torch.nn.functional import silu
 
-from .attention import taylor_atn_fn
+from .attention import atn_fn
 
 
 class SwiGLU(Module):
@@ -31,10 +31,10 @@ class RMSNorm(Module):
         return x / norm.clamp(min=self.eps) * self.g
 
 
-class TMHA(Module):
+class LMHA(Module):
     def __init__(self, dim: int, num_heads: int, head_dim: int):
         super().__init__()
-        self.transformations = Linear(dim, head_dim * num_heads * 2 + dim, bias=False)
+        self.transformations = Linear(dim, 2 * num_heads * head_dim + dim, bias=False)
         self.wo = Linear(in_features=dim, out_features=dim, bias=False)
         self.num_heads = num_heads
         self.qk_dim = num_heads * head_dim
@@ -43,15 +43,13 @@ class TMHA(Module):
     def forward(
             self,
             x: Tensor,
-            mask: Tensor,
-            rotator: Tensor) -> Tensor:
+            mask: Tensor
+    ) -> Tensor:
         x = self.transformations(x)
         qs = x[..., :self.qk_dim].view(x.size(0), x.size(1), self.num_heads, -1)
         ks = x[..., self.qk_dim:(2*self.qk_dim)].view(x.size(0), x.size(1), self.num_heads, -1)
         vs = x[..., 2*self.qk_dim:].view(x.size(0), x.size(1), self.num_heads, -1)
-        qs[mask] = torch.einsum('...ij,...hj->...hi', rotator[mask], qs[mask])
-        ks[mask] = torch.einsum('...ij,...hj->...hi', rotator[mask], ks[mask])
-        out = taylor_atn_fn(qs, ks, vs, mask)
+        out = atn_fn(qs, ks, vs, mask)
         return self.wo(out)
 
 
@@ -73,13 +71,13 @@ class EncoderLayer(Module):
     def __init__(self, num_heads: int, dim: int, dropout_rate: float, head_dim: int):
         super(EncoderLayer, self).__init__()
         self.mha_norm = RMSNorm(dim)
-        self.mha = TMHA(dim, num_heads, head_dim)
+        self.mha = LMHA(dim, num_heads, head_dim)
         self.res_ffn = ResidualFFN(dim, 4 * dim, dropout_rate)
         self.dropout = Dropout(dropout_rate)
 
-    def forward(self, encoder_input: Tensor, attention_mask: Tensor, rotator: Tensor) -> Tensor:
+    def forward(self, encoder_input: Tensor, attention_mask: Tensor) -> Tensor:
         mha_x = self.mha_norm(encoder_input)
-        mha_x = self.mha.forward(mha_x, attention_mask, rotator)
+        mha_x = self.mha.forward(mha_x, attention_mask)
         mha_x = self.dropout(mha_x)
         mha_x = encoder_input + mha_x
         return self.res_ffn(mha_x)

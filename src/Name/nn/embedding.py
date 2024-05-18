@@ -76,7 +76,7 @@ class TokenEmbedding(Module):
             10 [mask]
         """
 
-    def forward(self, dense_batch: Tensor) -> tuple[Tensor, Tensor]:
+    def forward(self, dense_batch: Tensor) -> Tensor:
         token_types, token_values, node_positions = dense_batch
 
         sos_mask = token_types == 0
@@ -89,16 +89,16 @@ class TokenEmbedding(Module):
             oos_mask = scope_mask & (drop_mask | oos_mask)
         db_mask = (token_types == 4)
 
-        unique_paths, inverse = node_positions.unique(return_inverse=True)
-        positional_encodings = self.path_encoder.forward(unique_paths)
+        # unique_paths, inverse = node_positions.unique(return_inverse=True)
+        # positional_encodings = self.path_encoder.forward(unique_paths)
 
         content_embeddings = torch.zeros(
             size=(*token_types.size(), self.dim),
-            dtype=positional_encodings.dtype,
+            dtype=torch.float,
             device=token_types.device)
         content_embeddings[sos_mask] = self.embeddings.weight[0]
         content_embeddings[bop_mask] = self.embeddings.forward(token_values[bop_mask] + 1)
         content_embeddings[nop_mask] = self.embeddings.forward(token_values[nop_mask] + 5)
         content_embeddings[db_mask] = self.embeddings.weight[8]
         content_embeddings[oos_mask] = self.embeddings.weight[10]
-        return content_embeddings, positional_encodings[inverse, :]
+        return content_embeddings

@@ -28,8 +28,7 @@ class FileEncoder(Module):
             dim=dim,
             head_dim=head_dim,
             dropout_rate=dropout_rate)
-        self.embedding = TokenEmbedding(dim=head_dim, scope_dropout=dropout_rate)
-        self.emb_proj = Linear(in_features=head_dim, out_features=self.dim, bias=False)
+        self.embedding = TokenEmbedding(dim=dim, scope_dropout=dropout_rate)
 
         self.register_buffer('pe', get_pe(dim, 500))
 
@@ -38,12 +37,10 @@ class FileEncoder(Module):
                 scope_sort: Tensor,
                 hole_asts: BatchedASTs) -> tuple[Tensor, Tensor]:
 
-        scope_features, _ = self.embedding.forward(scope_asts.tokens.permute(2, 0, 1))
-        hole_features, _ = self.embedding.forward(hole_asts.tokens.permute(2, 0, 1))
-        scope_features = self.emb_proj(scope_features)
-        hole_features = self.emb_proj(hole_features)
+        scope_features = self.embedding.forward(scope_asts.tokens.permute(2, 0, 1))
+        hole_features = self.embedding.forward(hole_asts.tokens.permute(2, 0, 1))
         scope_features = scope_features + self.pe[None, :scope_features.size(1)]
-        hole_features = hole_features + self.pe[None, :scope_features.size(1)]
+        hole_features = hole_features + self.pe[None, :hole_features.size(1)]
 
         scope_reprs = torch.zeros(
             scope_asts.num_trees,
