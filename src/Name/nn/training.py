@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 from .model import ModelCfg, Model
 from .batching import Batch
-from .utils.ranking import infoNCE, evaluate_rankings
+from .utils.ranking import infoNCE, evaluate_rankings, rank_candidates, to_dense_batch
 
 
 class TrainCfg(TypedDict):
@@ -97,6 +97,28 @@ class Trainer(Model):
             for i, batch in enumerate(epoch):
                 epoch_stats += self.eval_batch(batch)
         return epoch_stats
+
+    def infer_epoch(self, epoch: Iterator[Batch]) -> tuple[list[list[int]], list[set[int]]]:
+        ps = []
+        ts = []
+        with torch.no_grad():
+            for batch in epoch:
+                predictions = rank_candidates(self.get_predictions(batch), batch.edge_index[1])[0].cpu().tolist()
+                truths = to_dense_batch(batch.premises, batch.edge_index[1], fill_value=0)[0].cpu().bool().tolist()
+                ps.extend(predictions)
+                ts.extend([{i for i, x in enumerate(xs) if x} for xs in truths])
+            return ps, ts
+
+    def get_scores(self, epoch: Iterator[Batch]) -> tuple[list[list[float]], list[list[bool]]]:
+        ps = []
+        ts = []
+        with torch.no_grad():
+            for batch in epoch:
+                predictions = to_dense_batch(self.get_predictions(batch), batch.edge_index[1], fill_value=-1e08)[0].cpu().tolist()
+                truths = to_dense_batch(batch.premises, batch.edge_index[1], fill_value=0)[0].cpu().bool().tolist()
+                ps.extend(predictions)
+                ts.extend(truths)
+            return ps, ts
 
 
 class Logger:
