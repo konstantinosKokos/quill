@@ -12,6 +12,12 @@ T = TypeVar('T')
 DEBUG = False
 
 
+def f(x):
+    if 'original' in x.keys():
+        return f(x['original'])
+    return x
+
+
 def debug(wrapped: Callable[[dict], T]) -> Callable[[dict], T]:
     def wrapper(json: dict) -> T:
         print(json)
@@ -47,19 +53,23 @@ def parse_data(json: dict, validate: bool) -> File[str]:
 def parse_scope_entry(json: dict, is_import: bool) -> ScopeEntry[str]:
     return ScopeEntry(
         name=json['name'],
-        type=parse_term(json['type']),
-        definition=parse_definition(json['definition']),
+        type=parse_term(f(json['type'])),
+        definition=Primitive(),  # parse_definition(json['definition']),
         holes=[] if is_import else [parse_hole(hole) for hole in json['holes']],
-        is_import=is_import)
+        is_import=is_import,
+        pretty=json["type"]["pretty"]
+    )
 
 
 @debug
 def parse_hole(json: dict) -> Hole[str]:
     return Hole(
         context=tuple(parse_term(t) for t in json['ctx']['telescope']),
-        goal=parse_term(json['goal']),
-        term=parse_term(json['term']),
-        premises=tuple(Reference(p) for p in json['premises']))
+        goal=parse_term(f(json['goal'])),
+        term=UnsolvedMeta(),
+        premises=tuple(Reference(p) for p in json['premises']),
+        pretty=f'{json["ctx"]["pretty"]} ⊢ {json["goal"]["pretty"]}'
+    )
 
 
 @debug

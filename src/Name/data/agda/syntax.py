@@ -69,6 +69,7 @@ class ScopeEntry(NamedType[Name]):
     definition: AgdaDefinition[Name]
     holes: list[Hole[Name]]
     is_import: bool
+    pretty: str
 
     def __repr__(self) -> str:
         return f'{super(ScopeEntry, self).__repr__()} ({len(self.holes)} holes)'
@@ -79,7 +80,8 @@ class ScopeEntry(NamedType[Name]):
             type=self.type.substitute(names),
             definition=self.definition.substitute(names),
             holes=[hole.substitute(names) for hole in self.holes],
-            is_import=self.is_import)
+            is_import=self.is_import,
+            pretty=self.pretty)
 
 
 @dataclass(frozen=True)
@@ -178,6 +180,7 @@ class Hole(_AgdaExpr[Name]):
     goal: AgdaType[Name]
     term: AgdaTerm[Name]
     premises: tuple[Reference[Name], ...]     # n.b. scope only, above or self
+    pretty: str
 
     def __repr__(self) -> str:
         return f'{self.context} |- {self.goal}'
@@ -187,7 +190,8 @@ class Hole(_AgdaExpr[Name]):
             context=tuple(c.substitute(names) for c in self.context),
             goal=self.goal.substitute(names),
             term=self.term.substitute(names),
-            premises=tuple(premise.substitute(names) for premise in self.premises))
+            premises=tuple(premise.substitute(names) for premise in self.premises),
+            pretty=self.pretty)
 
 
 @dataclass(frozen=True)
