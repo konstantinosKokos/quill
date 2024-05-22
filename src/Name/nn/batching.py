@@ -138,7 +138,8 @@ class Collator:
 
 
 def discard_empty(files: list[TokenizedFile]) -> list[TokenizedFile]:
-    return [file for file in files if len(file.hole_asts)]
+    return [file for file in files if len(file.hole_asts) and
+            all(len(hole) > 0 and any(p != -1 for p in hole) for hole in file.premises)]
 
 
 def split_by_length(files: list[TokenizedFile], max_tokens: int) -> tuple[list[TokenizedFile], list[TokenizedFile]]:
