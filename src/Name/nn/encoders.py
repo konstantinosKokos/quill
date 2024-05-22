@@ -30,7 +30,7 @@ class FileEncoder(Module):
             dropout_rate=dropout_rate)
         self.embedding = TokenEmbedding(dim=dim, scope_dropout=dropout_rate)
 
-        self.register_buffer('pe', get_pe(dim, 500))
+        self.register_buffer('pe', get_pe(dim, 2000))
 
     def forward(self,
                 scope_asts: BatchedASTs,
