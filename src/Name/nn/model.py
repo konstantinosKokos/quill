@@ -5,6 +5,7 @@ from typing import TypedDict
 
 from .encoders import FileEncoder
 from .batching import Batch
+from .utils.modules import RMSNorm
 
 
 class ModelCfg(TypedDict):
@@ -25,6 +26,7 @@ class Model(Module):
             dropout_rate=0.1
         )
         self.lemma_predictor = Linear(config['dim'], 1)
+        self.norm = RMSNorm(config['dim'])
 
     def encode(self, batch: Batch) -> tuple[Tensor, Tensor]:
         return self.file_encoder.forward(
@@ -36,7 +38,7 @@ class Model(Module):
         source_index, target_index = edge_index
         sources = scope_reprs[source_index]
         targets = hole_reprs[target_index]
-        return self.lemma_predictor(sources * targets).squeeze(-1)
+        return self.lemma_predictor(self.norm(sources * targets)).squeeze(-1)
 
     def get_predictions(self, batch: Batch) -> Tensor:
         scope_reprs, hole_reprs = self.encode(batch)

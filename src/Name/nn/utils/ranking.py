@@ -23,7 +23,7 @@ def infoNCE(preds: Tensor,
 
     negatives = global_add_pool(negative_scores, negative_hole_ids, size=max(edge_index[1]) + 1)
     negatives = negatives[positive_hole_ids] + positive_scores
-    return -torch.log(positive_scores/negatives)
+    return -torch.log(torch.clamp(positive_scores/negatives, min=1e-06))
 
 
 def rank_candidates(x: Tensor, batch_ids: Tensor) -> tuple[Tensor, Tensor]:
