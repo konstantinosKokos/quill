@@ -50,7 +50,6 @@ class LMHA(Module):
         qs = x[..., :self.qk_dim].view(x.size(0), x.size(1), self.num_heads, -1)
         ks = x[..., self.qk_dim:(2*self.qk_dim)].view(x.size(0), x.size(1), self.num_heads, -1)
         vs = x[..., 2*self.qk_dim:].view(x.size(0), x.size(1), self.num_heads, -1)
-        qs, ks = Rotary.apply_rotary_position_embeddings(pe, qs, ks)
         out = atn_fn(qs, ks, vs, mask)
         return self.wo(out)
 
@@ -120,9 +119,7 @@ class Rotary(Module):
         rotate_half_query_layer = torch.stack([-query_layer[..., 1::2], query_layer[..., ::2]], dim=-1).reshape_as(
             query_layer
         )
-        query_layer = query_layer * cos_pos[None, :num_qs, :, None] + rotate_half_query_layer * sin_pos[None, :num_qs,
-                                                                                                :, None]
+        query_layer = query_layer * cos_pos[None, :num_qs, None, :] + rotate_half_query_layer * sin_pos[None, :num_qs, None, :]
         rotate_half_key_layer = torch.stack([-key_layer[..., 1::2], key_layer[..., ::2]], dim=-1).reshape_as(key_layer)
-        key_layer = key_layer * cos_pos[None, :num_ks, :, None] + rotate_half_key_layer * sin_pos[None, :num_ks, :,
-                                                                                          None]
+        key_layer = key_layer * cos_pos[None, :num_ks, None, :] + rotate_half_key_layer * sin_pos[None, :num_ks, None, :]
         return query_layer, key_layer

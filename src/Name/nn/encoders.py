@@ -67,7 +67,7 @@ class TermEncoder(Module):
                          head_dim=head_dim,
                          dropout_rate=dropout_rate)
             for _ in range(num_layers)])
-        self.pe = Rotary(4000, dim)
+        self.pe = Rotary(4000, head_dim)
 
     def forward(self,
                 dense_features: Tensor,
