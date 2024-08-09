@@ -1,21 +1,11 @@
-import torch
-from torch.nn import Module, ModuleList, Linear
-from torch import Tensor
-
+from torch.nn import ModuleList, Module
 from .batching import BatchedASTs
 
-from .utils.modules import EncoderLayer
+from .utils.modules import EncoderLayer, Rotary
 from .embedding import TokenEmbedding
 
-
-def get_pe(d_model: int, length: int) -> Tensor:
-    pe = torch.zeros(length, d_model)
-    position = torch.arange(0, length).unsqueeze(1)
-    div_term = torch.exp((torch.arange(0, d_model, 2, dtype=torch.float) *
-                         -(torch.log(torch.tensor(10000.0)) / d_model)))
-    pe[:, 0::2] = torch.sin(position.float() * div_term)
-    pe[:, 1::2] = torch.cos(position.float() * div_term)
-    return pe
+import torch
+from torch import Tensor
 
 
 class FileEncoder(Module):
@@ -30,8 +20,6 @@ class FileEncoder(Module):
             dropout_rate=dropout_rate)
         self.embedding = TokenEmbedding(dim=dim, scope_dropout=dropout_rate)
 
-        self.register_buffer('pe', get_pe(dim, 2000))
-
     def forward(self,
                 scope_asts: BatchedASTs,
                 scope_sort: Tensor,
@@ -39,8 +27,8 @@ class FileEncoder(Module):
 
         scope_features = self.embedding.forward(scope_asts.tokens.permute(2, 0, 1))
         hole_features = self.embedding.forward(hole_asts.tokens.permute(2, 0, 1))
-        scope_features = scope_features + self.pe[None, :scope_features.size(1)]
-        hole_features = hole_features + self.pe[None, :hole_features.size(1)]
+        scope_features = scope_features
+        hole_features = hole_features
 
         scope_reprs = torch.zeros(
             scope_asts.num_trees,
@@ -79,6 +67,7 @@ class TermEncoder(Module):
                          head_dim=head_dim,
                          dropout_rate=dropout_rate)
             for _ in range(num_layers)])
+        self.pe = Rotary(4000, dim)
 
     def forward(self,
                 dense_features: Tensor,
@@ -88,8 +77,9 @@ class TermEncoder(Module):
                 reference_storage: Tensor
                 ) -> Tensor:
         dense_features[reference_mask] = reference_storage[reference_ids]
+        pe = self.pe.forward(dense_features.size(1))
 
         layer: EncoderLayer
         for layer in self.encoder:
-            dense_features = layer.forward(dense_features, padding_mask)
+            dense_features = layer.forward(dense_features, pe, padding_mask)
         return dense_features[:, 0]
