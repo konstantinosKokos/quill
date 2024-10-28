@@ -5,6 +5,7 @@ from ..data.tokenization import tokenize_file
 from .model import Model, ModelCfg
 from .batching import Collator
 from .utils.ranking import rank_candidates
+from torch import Tensor
 
 
 class Inferer(Model):
@@ -26,3 +27,13 @@ class Inferer(Model):
             ranked, numels = rank_candidates(pair_scores, batch.edge_index[1])
             return [[tokenized.backrefs[idx] for idx in perm[:valid]]
                     for perm, valid in zip(ranked.cpu().tolist(), numels.cpu().tolist())]
+
+    def extract_reprs(self, file: File[str]) -> list[tuple[str, Tensor]]:
+        tokenized = tokenize_file(file, merge_holes=False, unique_only=False)
+        if file.num_holes == 0:
+            return []
+
+        with torch.no_grad():
+            batch = self.collator([tokenized])
+            scope_reprs, _ = self.encode(batch)
+            return [(entry.name, tensor) for entry, tensor in zip(file.scope, scope_reprs) if not entry.is_import]
