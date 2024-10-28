@@ -1,5 +1,5 @@
-from Name.data.agda.reader import parse_dir
-from Name.data.tokenization import tokenize_file
+from quill.data.agda.reader import parse_dir
+from quill.data.tokenization import tokenize_file
 import pickle
 
 

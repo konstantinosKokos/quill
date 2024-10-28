@@ -3,11 +3,11 @@ import argparse
 import pickle
 import sys
 
-sys.path.extend(['/home/kogkalk1/Projects/nagda/src'])
+sys.path.extend(['/home/kokos/Projects/nagda/src'])
 
-from Name.nn.training import TrainCfg, Trainer, Logger
-from Name.nn.batching import discard_empty, split_by_length, Sampler, Collator
-from Name.nn.utils.schedules import make_schedule
+from quill.nn.training import TrainCfg, Trainer, Logger
+from quill.nn.batching import discard_empty, split_by_length, Sampler, Collator
+from quill.nn.utils.schedules import make_schedule
 
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
