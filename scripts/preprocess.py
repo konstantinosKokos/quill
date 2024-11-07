@@ -9,3 +9,5 @@ if __name__ == '__main__':
     print(f'Tokenized {len(files)} files with {sum(len(file.hole_asts) for file in files)} holes.')
     with open('../data/tokenized.p', 'wb') as f:
         pickle.dump(files, f)
+    with open('../data/tokenized_sample.p', 'wb') as f:
+        pickle.dump(files[:10], f)
