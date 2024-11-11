@@ -44,7 +44,7 @@ Feel free to open and issue or get in touch.
 
 ## Lemma Visualization
 For a low-dimensional projection of the neural representations of (most) lemmas in the stdlib,
-together with their undirectional reference structure, look here: https://konstantinoskokos.github.io/quill/viz.html
+together with their undirectional reference structure, look here: https://konstantinoskokos.github.io/quill/viz.html.
 
 
 ## Citing
