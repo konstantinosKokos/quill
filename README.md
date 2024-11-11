@@ -52,9 +52,9 @@ You can cite the following entry if using our work in  a scholarly context.
 
 ```bibtex
 @inproceedings{kogkalidis_learning_2024,
-	author = {Konstantinos Kogkalidis and Orestis Melkonian and Jean-Philippe Bernardy},
-	title = {Learning Structure-Aware Representations of Dependent Types},
-         booktitle={The Thirty-eighth Annual Conference on Neural Information Processing Systems},
-	year = {2024},
+    author = {Konstantinos Kogkalidis and Orestis Melkonian and Jean-Philippe Bernardy},
+    title = {Learning Structure-Aware Representations of Dependent Types},
+    booktitle={The Thirty-eighth Annual Conference on Neural Information Processing Systems},
+    year = {2024},
 }
 ```
