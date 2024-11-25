@@ -92,7 +92,7 @@ class TokenEmbedding(Module):
         unique_paths, inverse = node_positions.unique(return_inverse=True)
         db_paths = torch.bucketize(token_values[db_mask], unique_paths)
         positional_encodings = self.path_encoder.forward(unique_paths)
-        db_encodings = positional_encodings[inverse[db_mask]] @ positional_encodings[db_paths]
+        db_encodings = positional_encodings[inverse[db_mask]].mT @ positional_encodings[db_paths]
 
         content_embeddings = torch.zeros(
             size=(*token_types.size(), self.dim),
