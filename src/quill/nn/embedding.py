@@ -13,9 +13,8 @@ class BinaryPathEncoder(Module):
     def __init__(self, dim: int):
         super().__init__()
         self.dim: int = dim
-        self.num_heads: int = 1
         self._primitives = Parameter(
-            rope_like_init(dim // 2).unsqueeze(0).repeat(self.num_heads, 1, 1),
+            rope_like_init(dim // 2).unsqueeze(0).repeat(2, 1, 1),
             requires_grad=True)
         self.identity: Parameter = Parameter(torch.eye(dim).unsqueeze(0))
         self._pos_to_path: dict[int, list[bool]] = {}
@@ -127,6 +126,6 @@ class TokenEmbedding(Module):
         content_embeddings[sos_mask] = self.embeddings.weight[0]
         content_embeddings[bop_mask] = self.embeddings.forward(token_values[bop_mask] + 1)
         content_embeddings[nop_mask] = self.embeddings.forward(token_values[nop_mask] + 5)
-        content_embeddings[db_mask] = db_encodings @ self.embeddings.weight[8]
+        content_embeddings[db_mask] = self.embeddings.weight[8] @ db_encodings
         content_embeddings[oos_mask] = self.embeddings.weight[10]
         return content_embeddings, positional_encodings[inverse, :]
