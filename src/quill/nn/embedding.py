@@ -13,6 +13,7 @@ class BinaryPathEncoder(Module):
     def __init__(self, dim: int):
         super().__init__()
         self.dim: int = dim
+        self.num_heads: int = 1
         self._primitives = Parameter(
             rope_like_init(dim // 2).unsqueeze(0).repeat(self.num_heads, 1, 1),
             requires_grad=True)
