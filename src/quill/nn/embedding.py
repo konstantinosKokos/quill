@@ -6,12 +6,16 @@ from torch.nn import Module, Parameter, Embedding
 from torch.nn.functional import linear
 from torch.nn.utils.rnn import pad_sequence
 
+from scipy.linalg import logm
+
 
 class BinaryPathEncoder(Module):
     def __init__(self, dim: int):
         super().__init__()
         self.dim: int = dim
-        self._primitives = Parameter(torch.rand(2, self.dim, self.dim).softmax(dim=-1).cumsum(dim=-1))
+        self._primitives = Parameter(
+            rope_like_init(dim // 2).unsqueeze(0).repeat(self.num_heads, 1, 1),
+            requires_grad=True)
         self.identity: Parameter = Parameter(torch.eye(dim).unsqueeze(0))
         self._pos_to_path: dict[int, list[bool]] = {}
 
@@ -48,6 +52,27 @@ class BinaryPathEncoder(Module):
             return self._pos_to_path[idx]
         self._pos_to_path[idx] = [] if idx == 1 else [idx % 2] + self.pos_to_path(idx // 2)
         return self._pos_to_path[idx]
+
+
+def rope_like_init(dim: int) -> Tensor:
+    angles = torch.tensor([1 / (10000 ** (2 * (j // 2) / dim)) for j in range(dim)])
+    out = torch.cos(angles).repeat_interleave(2).diag_embed()
+    sines = torch.sin(angles)
+    for idx in range(len(sines)):
+        out[2 * idx, 2 * idx + 1] = sines[idx]
+        out[2 * idx + 1, 2 * idx] = -sines[idx]
+    log = torch.tensor(logm(out)).real
+    base = torch.rand_like(log, requires_grad=True)
+
+    optim = torch.optim.AdamW([base], lr=1e-3)
+
+    for _ in range(10000):
+        loss = torch.norm(log - (base - base.mT)) ** 2
+        loss.backward()
+        optim.step()
+        optim.zero_grad()
+
+    return base.detach().float()
 
 
 class TokenEmbedding(Module):
