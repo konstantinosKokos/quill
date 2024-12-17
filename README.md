@@ -6,10 +6,11 @@ Quill is a WIP attempt at a structurally faithful neural representation of Agda 
 
 ### Interface with Agda
 
-TBD / Help needed. 
+TBD / WIP. 
 Right now you can export a file (possibly containing holes) into json format
 (see https://github.com/omelkonian/agda2train), and then invoke a script that looks like `/scripts/inference.py`
 to obtain lemma suggestions.
+Improved interactivity is in the works.
 
 ### Train a model
 
