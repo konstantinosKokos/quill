@@ -6,10 +6,11 @@ Quill is a WIP attempt at a structurally faithful neural representation of Agda 
 
 ### Interface with Agda
 
-TBD / Help needed. 
+TBD / WIP. 
 Right now you can export a file (possibly containing holes) into json format
 (see https://github.com/omelkonian/agda2train), and then invoke a script that looks like `/scripts/inference.py`
 to obtain lemma suggestions.
+Improved interactivity is in the works.
 
 ### Train a model
 
@@ -24,7 +25,7 @@ Run the preprocessing script (`/scripts/preprocess.py`) to have Python parse and
 Then train as you would normally.
 
 ### Evaluate a model
-Run the evaluation script (`/scripts/validate.py`), after any necessary modifications. You can download one of the pretrained models [here](https://www.dropbox.com/scl/fi/z4npfhs6lft0szm35c61t/model0.pt?rlkey=u4ljpg3mgs6leg96owfwpi5rm&st=7sypryez&dl=0).
+Run the evaluation script (`/scripts/validate.py`), after any necessary modifications. You can download one of the pretrained models [here](https://www.dropbox.com/scl/fi/58i2mhpfkctp9lasw3fc6/model.pt?rlkey=8dhc69p9798r9drskcx06j449&st=talhqkgl&dl=0).
 
 ### Inspect the parsed & tokenized files
 The Python definitions of Agda file- and term-structures can be found in `src/quill/data/agda/syntax.py`.
