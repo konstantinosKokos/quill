@@ -53,4 +53,4 @@ class Model(Module):
         torch.save(self.state_dict(), path)
 
     def load(self, path: str, map_location: str, strict: bool = True) -> None:
-        self.load_state_dict(torch.load(path, map_location=map_location), strict=strict)
+        self.load_state_dict(torch.load(path, map_location=map_location, weights_only=True), strict=strict)
