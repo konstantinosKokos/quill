@@ -28,6 +28,11 @@ class Model(Module):
         self.lemma_predictor = Linear(config['dim'], 1)
         self.norm = RMSNorm(config['dim'])
 
+    def encode_scope(self, batch: Batch) -> Tensor:
+        return self.file_encoder.encode_scope(
+            scope_asts=batch.dense_scopes,
+            scope_sort=batch.scope_sort)
+
     def encode(self, batch: Batch) -> tuple[Tensor, Tensor]:
         return self.file_encoder.forward(
             scope_asts=batch.dense_scopes,
