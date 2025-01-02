@@ -37,8 +37,9 @@ class TMHA(Module):
         self.transformations = Linear(dim, head_dim * num_heads * 2 + dim, bias=False)
         self.wo = Linear(in_features=dim, out_features=dim, bias=False)
         self.num_heads = num_heads
-        self.qk_dim = num_heads * head_dim
         self.dim = dim
+        self.head_dim = head_dim
+        self.v_dim = dim // num_heads
 
     def forward(
             self,
@@ -46,9 +47,10 @@ class TMHA(Module):
             mask: Tensor,
             rotator: Tensor) -> Tensor:
         x = self.transformations(x)
-        qs = x[..., :self.qk_dim].view(x.size(0), x.size(1), self.num_heads, -1)
-        ks = x[..., self.qk_dim:(2*self.qk_dim)].view(x.size(0), x.size(1), self.num_heads, -1)
-        vs = x[..., 2*self.qk_dim:].view(x.size(0), x.size(1), self.num_heads, -1)
+        qk_dim = self.num_heads * self.head_dim
+        qs = x[..., :qk_dim].view(x.size(0), x.size(1), self.num_heads, self.head_dim)
+        ks = x[..., qk_dim:(2*qk_dim)].view(x.size(0), x.size(1), self.num_heads, self.head_dim)
+        vs = x[..., 2*qk_dim:].view(x.size(0), x.size(1), self.num_heads, self.v_dim)
         qs[mask] = torch.einsum('...ij,...hj->...hi', rotator[mask], qs[mask])
         ks[mask] = torch.einsum('...ij,...hj->...hi', rotator[mask], ks[mask])
         out = taylor_atn_fn(qs, ks, vs, mask)
