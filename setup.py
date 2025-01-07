@@ -17,4 +17,9 @@ setup(
         'requests'
     ],
     python_requires='>=3.11',
+    entry_points={
+        'console_scripts': [
+            'agda-quill=quill.api.cli:main'
+        ]
+    }
 )
