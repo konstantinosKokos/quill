@@ -64,7 +64,7 @@ def rope_like_init(dim: int) -> Tensor:
     for idx in range(len(sines)):
         out[2 * idx, 2 * idx + 1] = sines[idx]
         out[2 * idx + 1, 2 * idx] = -sines[idx]
-    log = torch.tensor(logm(out)).real
+    log = torch.tensor(logm(out, disp=False)).real
     base = torch.rand_like(log, requires_grad=True)
 
     optim = torch.optim.AdamW([base], lr=1e-3)
