@@ -64,13 +64,14 @@ def rope_like_init(dim: int) -> Tensor:
     for idx in range(len(sines)):
         out[2 * idx, 2 * idx + 1] = sines[idx]
         out[2 * idx + 1, 2 * idx] = -sines[idx]
-    log = torch.tensor(logm(out)).real
-    base = torch.rand_like(log, requires_grad=True)
+    log, _ = logm(out, disp=False)
+    target = torch.tensor(log).real
+    base = torch.rand_like(target, requires_grad=True)
 
     optim = torch.optim.AdamW([base], lr=1e-3)
 
     for _ in range(10000):
-        loss = torch.norm(log - (base - base.mT)) ** 2
+        loss = torch.norm(target - (base - base.mT)) ** 2
         loss.backward()
         optim.step()
         optim.zero_grad()
