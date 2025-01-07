@@ -6,6 +6,8 @@ from .model import Model, ModelCfg
 from .batching import Collator
 from .utils.ranking import rank_candidates
 
+from warnings import warn
+
 
 class Inferer(Model):
     def __init__(self, model_config: ModelCfg, cast_to: str):
@@ -16,25 +18,28 @@ class Inferer(Model):
         self.cache: dict[tuple[str, str], torch.Tensor] = dict()
 
     @torch.no_grad()
-    def select_premises(self, file: File[str], with_cache: bool = False) -> list[list[str]]:
+    def select_premises(self, file: File[str], use_cache: bool = False) -> list[list[str]]:
         tokenized = tokenize_file(file, merge_holes=False, unique_only=False)
         if file.num_holes == 0:
             return []
 
-        with torch.no_grad():
-            batch = self.collator([tokenized])
-            (scope_reprs, hole_reprs), edge_index, backrefs = self.encode(batch), batch.edge_index, tokenized.backrefs
-            if len(self.cache):
-                (scope_reprs, hole_reprs, edge_index, backrefs) = self.extend_batch(
-                    scope_reprs,
-                    hole_reprs,
-                    edge_index,
-                    backrefs
-                )
-            pair_scores = self.match(scope_reprs, hole_reprs, edge_index)
-            ranked, numels = rank_candidates(pair_scores, edge_index[1])
-            return [[backrefs[idx] for idx in perm[:valid]]
-                    for perm, valid in zip(ranked.cpu().tolist(), numels.cpu().tolist())]
+        if use_cache and not len(self.cache):
+            warn('Was told to use cache, but no cache present. Try running model.precompute(...) first.')
+            use_cache = False
+
+        batch = self.collator([tokenized])
+        (scope_reprs, hole_reprs), edge_index, backrefs = self.encode(batch), batch.edge_index, tokenized.backrefs
+        if use_cache:
+            (scope_reprs, hole_reprs, edge_index, backrefs) = self.extend_batch(
+                scope_reprs,
+                hole_reprs,
+                edge_index,
+                backrefs
+            )
+        pair_scores = self.match(scope_reprs, hole_reprs, edge_index)
+        ranked, numels = rank_candidates(pair_scores, edge_index[1])
+        return [[backrefs[idx] for idx in perm[:valid]]
+                for perm, valid in zip(ranked.cpu().tolist(), numels.cpu().tolist())]
 
     @torch.no_grad()
     def precompute(self, files: list[File[str]]) -> None:
@@ -44,7 +49,7 @@ class Inferer(Model):
                 batch = self.collator([tokenized])
                 scope_reprs = self.encode_scope(batch)
                 for i, lemma in tokenized.backrefs.items():
-                    self.cache[(tokenized.file.name, lemma)] = scope_reprs[i].detach()
+                    self.cache[(tokenized.file.name, lemma)] = scope_reprs[i]
 
     def extend_batch(
             self,
