@@ -13,8 +13,9 @@ setup(
     install_requires=[
         'torch>=2.4',
         'torch-geometric>=2.6',
-        'flask>=2.2',
-        'requests'
+        'fastapi',
+        'requests',
+        'pydantic>=2.10'
     ],
     python_requires='>=3.11',
     entry_points={

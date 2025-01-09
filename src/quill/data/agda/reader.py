@@ -6,13 +6,12 @@ from .syntax import (AgdaTerm, AppTerm, PiTerm, LamTerm, LitTerm, SortTerm,
 from json import load
 from os import listdir, path
 from functools import reduce
-from typing import Iterator, Callable, TypeVar
+from typing import Iterator, Callable
 
-T = TypeVar('T')
 DEBUG = False
 
 
-def debug(wrapped: Callable[[dict], T]) -> Callable[[dict], T]:
+def debug[T](wrapped: Callable[[dict], T]) -> Callable[[dict], T]:
     def wrapper(json: dict) -> T:
         print(json)
         return wrapped(json)

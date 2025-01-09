@@ -29,7 +29,7 @@ for f in tqdm(train_files[:50]):
 
 
 inferer.precompute(cache_files)
-print(f'Cache size is: {len(inferer.cache)}')
 selected = inferer.select_premises(
-    file=parse_file(f'/home/kokos/Projects/nagda/data/stdlib/{file}.json', validate=True))
+    file=parse_file(f'/home/kokos/Projects/nagda/data/stdlib/{file}.json', validate=True),
+    use_cache=True)
 print(selected[:10])

@@ -13,6 +13,7 @@ def main():
 
     query_parser = subparsers.add_parser('query', help='Query the model with an Agda export file')
     query_parser.add_argument('-file', type=str, required=True, help='Path to an Agda json export')
+    query_parser.add_argument('--max_suggestions', type=int, default=None, help='Max number of premises returned per hole')
     query_parser.add_argument('--host', type=str, default='127.0.0.1', help='Server host address')
     query_parser.add_argument('--port', type=int, default=5000, help='Server port')
     query_parser.add_argument('--use_cache', action='store_true', help='Suggest lemmas outside the current scope')
@@ -38,9 +39,10 @@ def main():
             from .query import main
             main(
                 file=args.file,
+                max_suggestions=args.max_suggestions,
                 host=args.host,
                 port=args.port,
-                use_cache=args.use_cache
+                use_cache=args.use_cache,
             )
         case 'cache':
             from .cache import main
