@@ -9,21 +9,21 @@ Quill is a WIP attempt at a structurally faithful neural representation of Agda 
 **1.** Clone or download this repository.
 
 ```shell
-  git clone git@github.com:konstantinosKokos/quill.git
+git clone git@github.com:konstantinosKokos/quill.git
 ```
 
 **2.** Initialize a fresh python environment (e.g. using [Miniconda](https://docs.anaconda.com/miniconda/)).
 
 
  ```shell
-   conda create --name quill python=3.12
+conda create --name quill python=3.12
  ``` 
 
 **3.** Activate the environment, and install the package and its dependencies.
 
 ```shell
-  conda activate quill
-  pip install .
+conda activate quill
+pip install .
 ``` 
 
 **Note**: *This will install the cpu version of pytorch by default. For CUDA acceleration, you will need to manually
@@ -56,18 +56,18 @@ The second part of this process is partially streamlined through a CLI API.
 First, deploy a server running the model in inference mode:
 
 ```shell
-  agda-quill serve -config PATH_TO_MODEL_CONFIG -weights PATH_TO_MODEL_WEIGHTS
+agda-quill serve -config PATH_TO_MODEL_CONFIG -weights PATH_TO_MODEL_WEIGHTS
 ```
 
 You can then optionally precompute representations of the lemmas defined in various files/libraries:
 
 ```shell
-  agda-quill cache -files ./data/stdlib/Data.List.*
+agda-quill cache -files ./data/stdlib/Data.List.*
 ```
 
 Finally, you can query the model for suggestions, optionally using the cached representations:
 ```shell
-  agda-quill query -file ./data/stdlib/Algebra.Construct.NaturalChoice.Min.json --max_suggestions 2 --use_cache
+agda-quill query -file ./data/stdlib/Algebra.Construct.NaturalChoice.Min.json --max_suggestions 2 --use_cache
 ```
 
 ### 🤖 Train a model ...
