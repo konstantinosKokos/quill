@@ -40,6 +40,7 @@ find and install compatible pytorch and pytorch geometric versions.*
 You can **uninstall** by removing the environment from your system, and deleting all downloaded files.
 
 ---
+
 ## ❓ How-To
 
 ### 🪿 Interface with Agda
@@ -101,6 +102,7 @@ together with their undirectional reference structure, look here: https://konsta
 ### 💬 Comment, ask, complain, etc.
 Feel free to open and issue or get in touch.
 
+---
 
 ## 📜 Citing
 You can cite the following entry if using our work in  a scholarly context.
