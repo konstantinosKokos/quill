@@ -1,0 +1,6 @@
+{
+    "depth": 6,
+    "num_heads": 8,
+    "dim": 256,
+    "head_dim": 16
+}

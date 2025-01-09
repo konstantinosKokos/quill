@@ -5,13 +5,13 @@ from typing import NamedTuple, Iterator, TypeVar
 import torch
 from torch import Tensor
 from torch.nn.functional import pad
-from torch.nn.utils.rnn import pad_sequence
 
 from math import ceil
 from random import sample
 
 from itertools import groupby
 
+from .utils import pad_sequence
 
 def scope_causal_mask(
         num_entries: int,
@@ -57,10 +57,15 @@ class Collator:
         return pad(self.tensor(tree), pad=(0, 0, 0, to - len(tree)), mode='constant', value=self.pad_value)
 
     def pad_asts(self, trees: list[TokenizedAST], to: int) -> Tensor:
-        return pad_sequence([self.pad_ast(tree, to) for tree in trees], batch_first=True, padding_value=self.pad_value)
+        return pad_sequence(
+            [self.pad_ast(tree, to) for tree in trees],
+            padding_value=self.pad_value,
+            default_size=(0, 0, 3),
+            default_device=self.device
+        )
 
     def pad_ast_seqs(self, xss: list[list[TokenizedAST]]) -> Tensor:
-        max_len = max(len(x) for xs in xss for x in xs)
+        max_len = max((len(x) for xs in xss for x in xs), default=0)
         return self.pad_asts([x for xs in xss for x in xs], to=max_len)
 
     def token_mask(self, xs: Tensor) -> Tensor:

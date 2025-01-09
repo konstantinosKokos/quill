@@ -4,9 +4,9 @@ import torch
 from torch import Tensor
 from torch.nn import Module, Parameter, Embedding
 from torch.nn.functional import linear
-from torch.nn.utils.rnn import pad_sequence
-
 from scipy.linalg import logm
+
+from .utils import pad_sequence
 
 
 class BinaryPathEncoder(Module):
@@ -31,9 +31,12 @@ class BinaryPathEncoder(Module):
     def embed_positions(self, positions: list[int]) -> Tensor:
         primitives = self.primitives
         path_words = pad_sequence(
-            [torch.tensor(self.pos_to_path(pos), device=self.primitives.device, dtype=torch.long)
-             if pos > 0 else torch.empty(0, device=self.primitives.device, dtype=torch.long)
-             for pos in positions], padding_value=2, batch_first=True)
+            [torch.tensor(self.pos_to_path(pos), dtype=torch.long)
+             if pos > 0 else torch.empty(0, dtype=torch.long)
+             for pos in positions],
+            padding_value=2,
+            default_size=(0, 0),
+            default_device=self.primitives.device)
         maps = self.identity.repeat(len(positions), 1, 1)
 
         left_mask = path_words == 0
@@ -61,13 +64,14 @@ def rope_like_init(dim: int) -> Tensor:
     for idx in range(len(sines)):
         out[2 * idx, 2 * idx + 1] = sines[idx]
         out[2 * idx + 1, 2 * idx] = -sines[idx]
-    log = torch.tensor(logm(out)).real
-    base = torch.rand_like(log, requires_grad=True)
+    log, _ = logm(out, disp=False)
+    target = torch.tensor(log).real
+    base = torch.rand_like(target, requires_grad=True)
 
     optim = torch.optim.AdamW([base], lr=1e-3)
 
     for _ in range(10000):
-        loss = torch.norm(log - (base - base.mT)) ** 2
+        loss = torch.norm(target - (base - base.mT)) ** 2
         loss.backward()
         optim.step()
         optim.zero_grad()

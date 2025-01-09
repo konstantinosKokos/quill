@@ -21,16 +21,9 @@ class FileEncoder(Module):
         self.embedding = TokenEmbedding(dim=head_dim, scope_dropout=dropout_rate)
         self.emb_proj = Linear(in_features=head_dim, out_features=self.dim, bias=False)
 
-    def forward(self,
-                scope_asts: BatchedASTs,
-                scope_sort: Tensor,
-                hole_asts: BatchedASTs) -> tuple[Tensor, Tensor]:
-
+    def encode_scope(self, scope_asts: BatchedASTs, scope_sort: Tensor) -> Tensor:
         scope_features, scope_rotator = self.embedding.forward(scope_asts.tokens.permute(2, 0, 1))
-        hole_features, hole_rotator = self.embedding.forward(hole_asts.tokens.permute(2, 0, 1))
         scope_features = self.emb_proj(scope_features)
-        hole_features = self.emb_proj(hole_features)
-
         scope_reprs = torch.zeros(
             scope_asts.num_trees,
             self.dim,
@@ -50,6 +43,11 @@ class FileEncoder(Module):
                 reference_storage=scope_reprs,
                 rotator=scope_rotator[rank_mask][:, :max_seq_len]
             )
+        return scope_reprs
+
+    def encode_holes(self, scope_reprs: Tensor, hole_asts: BatchedASTs):
+        hole_features, hole_rotator = self.embedding.forward(hole_asts.tokens.permute(2, 0, 1))
+        hole_features = self.emb_proj(hole_features)
         hole_reprs = self.term_encoder.forward(
             dense_features=hole_features,
             padding_mask=hole_asts.padding_mask,
@@ -58,6 +56,14 @@ class FileEncoder(Module):
             reference_storage=scope_reprs,
             rotator=hole_rotator
         )
+        return hole_reprs
+
+    def forward(self,
+                scope_asts: BatchedASTs,
+                scope_sort: Tensor,
+                hole_asts: BatchedASTs) -> tuple[Tensor, Tensor]:
+        scope_reprs = self.encode_scope(scope_asts, scope_sort)
+        hole_reprs = self.encode_holes(scope_reprs, hole_asts)
         return scope_reprs, hole_reprs
 
 

@@ -28,6 +28,11 @@ class Model(Module):
         self.lemma_predictor = Linear(config['dim'], 1)
         self.norm = RMSNorm(config['dim'])
 
+    def encode_scope(self, batch: Batch) -> Tensor:
+        return self.file_encoder.encode_scope(
+            scope_asts=batch.dense_scopes,
+            scope_sort=batch.scope_sort)
+
     def encode(self, batch: Batch) -> tuple[Tensor, Tensor]:
         return self.file_encoder.forward(
             scope_asts=batch.dense_scopes,
@@ -48,4 +53,4 @@ class Model(Module):
         torch.save(self.state_dict(), path)
 
     def load(self, path: str, map_location: str, strict: bool = True) -> None:
-        self.load_state_dict(torch.load(path, map_location=map_location), strict=strict)
+        self.load_state_dict(torch.load(path, map_location=map_location, weights_only=True), strict=strict)
