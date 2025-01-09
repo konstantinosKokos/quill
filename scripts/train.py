@@ -1,9 +1,6 @@
 import json
 import argparse
 import pickle
-import sys
-
-sys.path.extend(['/home/kokos/Projects/nagda/src'])
 
 from quill.nn.training import TrainCfg, Trainer, Logger
 from quill.nn.batching import discard_empty, split_by_length, Sampler, Collator

@@ -1,10 +1,7 @@
 import json
 import pickle
-import sys
 
 import torch
-
-sys.path.extend(['/home/kogkalk1/Projects/nagda/src'])
 
 from quill.nn.training import TrainCfg, Trainer
 from quill.nn.batching import discard_empty, split_by_length, Collator
