@@ -1,3 +1,4 @@
+import sys
 import json
 import argparse
 import pickle
@@ -38,11 +39,13 @@ def train(
 
     model = Trainer(config['model_config']).to(device)
     optimizer = AdamW(params=model.parameters(), lr=1, weight_decay=1e-02)
-    schedule = make_schedule(warmup_steps=config['warmup_epochs'] * epoch_size,
-                             warmdown_steps=config['warmdown_epochs'] * epoch_size,
-                             max_lr=config['max_lr'],
-                             min_lr=config['min_lr'],
-                             total_steps=config['num_epochs'] * epoch_size)
+    schedule = make_schedule(
+        warmup_steps=config['warmup_epochs'] * epoch_size,
+        warmdown_steps=config['warmdown_epochs'] * epoch_size,
+        max_lr=config['max_lr'],
+        min_lr=config['min_lr'],
+        total_steps=config['num_epochs'] * epoch_size
+    )
     scheduler = LambdaLR(optimizer=optimizer, lr_lambda=schedule, last_epoch=-1)
 
     best_ap = -1e08
