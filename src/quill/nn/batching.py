@@ -143,9 +143,22 @@ class Collator:
 
 
 def discard_empty(files: list[TokenizedFile]) -> list[TokenizedFile]:
-    return [file for file in files if len(file.hole_asts) and
-            all(len(hole) > 0 and any(p != -1 for p in hole) for hole in file.premises)]
+    def is_solvable(premises: list[int]) -> bool:
+        return any(premise != -1 for premise in premises)
 
+    def keep_valid_holes(file: TokenizedFile) -> TokenizedFile | None:
+        valid = [i for i, premises in enumerate(file.premises) if is_solvable(premises)]
+        if not valid:
+            return None
+        return TokenizedFile(
+            file=file.file,
+            backrefs=file.backrefs,
+            entry_sort=file.entry_sort,
+            scope_asts=file.scope_asts,
+            hole_to_scope=[file.hole_to_scope[i] for i in valid],
+            hole_asts=[file.hole_asts[i] for i in valid],
+            premises=[file.premises[i] for i in valid])
+    return list(filter(None, map(keep_valid_holes, files)))
 
 def split_by_length(files: list[TokenizedFile], max_tokens: int) -> tuple[list[TokenizedFile], list[TokenizedFile]]:
     flags = [sum(len(ast) for ast in file.scope_asts) <= max_tokens for file in files]
