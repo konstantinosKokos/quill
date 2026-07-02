@@ -51,7 +51,7 @@ def tokenize_file(original: File[str], merge_holes: bool = True, unique_only: bo
     zipped_scopes = tuple(zip(*[
         (i, tokenize_ast(term_to_ast(entry.type, 1, ()))) for i, entry in enumerate(anonymous.scope)]))
     zipped_holes = tuple(zip(*[
-        (i, tokenize_ast(term_to_ast(hole.goal, 1, ())), [n for lemma in hole.premises if (n := lemma.name) != 1])
+        (i, tokenize_ast(term_to_ast(hole.goal, 1, ())), [n for lemma in hole.premises if (n := lemma.name) != -1])
         for i, entry in enumerate(anonymous.scope) for hole in entry.holes]))
     scope_positions, scope_asts = zipped_scopes or ([], [])
     hole_to_scope, hole_asts, premises = zipped_holes or ([], [], [])
