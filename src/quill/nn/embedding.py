@@ -3,7 +3,6 @@ from __future__ import annotations
 import torch
 from torch import Tensor
 from torch.nn import Module, Parameter, Embedding
-from torch.nn.functional import linear
 from torch.utils.checkpoint import checkpoint
 from scipy.linalg import logm
 
@@ -44,8 +43,8 @@ class BinaryPathEncoder(Module):
         right_mask = path_words == 1
 
         for step in range(path_words.size(1)):
-            maps[left_mask[:, step]] = linear(maps[left_mask[:, step]], primitives[0])
-            maps[right_mask[:, step]] = linear(maps[right_mask[:, step]], primitives[1])
+            maps[left_mask[:, step]] = maps[left_mask[:, step]] @ primitives[0]
+            maps[right_mask[:, step]] = maps[right_mask[:, step]] @ primitives[1]
         return maps
 
     def forward(self, unique: Tensor) -> Tensor:
@@ -54,7 +53,7 @@ class BinaryPathEncoder(Module):
     def pos_to_path(self, idx: int) -> list[int]:
         if idx in self._pos_to_path:
             return self._pos_to_path[idx]
-        self._pos_to_path[idx] = [] if idx == 1 else [idx % 2] + self.pos_to_path(idx // 2)
+        self._pos_to_path[idx] = [] if idx == 1 else self.pos_to_path(idx // 2) + [idx % 2]
         return self._pos_to_path[idx]
 
 
