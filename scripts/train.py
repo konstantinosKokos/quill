@@ -1,4 +1,5 @@
 import sys
+import os
 import json
 import argparse
 import pickle
@@ -16,6 +17,7 @@ def train(
         data_path: str,
         store_path: str,
         log_path: str,
+        checkpoint_path: str,
         device: str):
     logger = Logger(sys.stdout, log_path)
     sys.stdout = logger
@@ -30,8 +32,6 @@ def train(
     dev_files = [file for file in files if file.file.name in config['dev_files']]
     train_files, _ = split_by_length(train_files, config['max_tokens'])
     dev_files, _ = split_by_length(dev_files, config['max_tokens'])
-    print(f'Training on {len(train_files)} files with {sum(len(file.hole_asts) for file in train_files)} holes.')
-    print(f'Evaluating on {len(dev_files)} files with {sum(len(file.hole_asts) for file in dev_files)} holes.')
 
     train_sampler = Sampler(train_files)
     epoch_size = train_sampler.itersize(config['batch_size_s'] * config['backprop_every'], config['batch_size_h'])
@@ -48,8 +48,11 @@ def train(
     )
     scheduler = LambdaLR(optimizer=optimizer, lr_lambda=schedule, last_epoch=-1)
 
-    best_ap = -1e08
-    for epoch in range(config['num_epochs']):
+    start_epoch, best_ap = 0, -1e08
+    if os.path.exists(checkpoint_path):
+        start_epoch, best_ap = model.load_checkpoint(checkpoint_path, optimizer, scheduler, device)
+        print(f'Resuming from checkpoint at epoch {start_epoch}.')
+    for epoch in range(start_epoch, config['num_epochs']):
         print(f'Epoch {epoch}')
         print('-' * 64)
         train_epoch = model.train_epoch(
@@ -70,6 +73,7 @@ def train(
             print('Saving...')
             model.save(store_path)
             best_ap = sum(dev_epoch.ap)
+        model.save_checkpoint(checkpoint_path, optimizer, scheduler, epoch, best_ap)
         print('=' * 64 + '\n')
     logger.flush()
 
@@ -84,6 +88,8 @@ def parse_args():
                         default='../data/model.pt')
     parser.add_argument('--log_path', type=str, help='Where to log results',
                         default='../data/log.txt')
+    parser.add_argument('--checkpoint_path', type=str, help='Where to store/resume the training checkpoint',
+                        default='../data/checkpoint.pt')
     return parser.parse_args()
 
 
@@ -95,5 +101,6 @@ if __name__ == '__main__':
         data_path=args.data_path,
         store_path=args.store_path,
         log_path=args.log_path,
+        checkpoint_path=args.checkpoint_path,
         device='cuda',
     )
