@@ -1,6 +1,7 @@
 import torch
 from torch.nn import Module, ModuleList, Linear
 from torch import Tensor
+from torch.utils.checkpoint import checkpoint
 
 from .batching import BatchedASTs
 
@@ -76,6 +77,7 @@ class TermEncoder(Module):
                          head_dim=head_dim,
                          dropout_rate=dropout_rate)
             for _ in range(num_layers)])
+        self.gradient_checkpointing = True
 
     def forward(self,
                 dense_features: Tensor,
@@ -86,7 +88,11 @@ class TermEncoder(Module):
                 rotator: Tensor) -> Tensor:
         dense_features[reference_mask] = reference_storage[reference_ids]
 
+        ckpt = self.gradient_checkpointing and self.training and torch.is_grad_enabled()
         layer: EncoderLayer
         for layer in self.encoder:
-            dense_features = layer.forward(dense_features, padding_mask, rotator)
+            if ckpt:
+                dense_features = checkpoint(layer, dense_features, padding_mask, rotator, use_reentrant=False)
+            else:
+                dense_features = layer.forward(dense_features, padding_mask, rotator)
         return dense_features[:, 0]

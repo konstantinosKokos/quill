@@ -29,7 +29,7 @@ pip install .
 **Note**: *This will install the cpu version of pytorch by default. For CUDA acceleration, you will need to manually
 find and install compatible pytorch and pytorch geometric versions.*
 
-**4.** Download a pretrained model's weights through [here](https://www.dropbox.com/scl/fi/58i2mhpfkctp9lasw3fc6/model.pt?rlkey=8dhc69p9798r9drskcx06j449&st=talhqkgl&dl=0).
+**4.** Download a pretrained model's weights through [here](https://www.dropbox.com/scl/fi/zd2s1evanh7jrrtdofr4d/model.pt?rlkey=yxjj07jvlnfikz1t40e32kguk&st=ccu15xkn&dl=0).
 
 **Note**: *Optional. Only relevant for inference/evaluation.*
 
@@ -46,10 +46,13 @@ You can **uninstall** by removing the environment from your system, and deleting
 ### 🪿 Interface with Agda
 
 > 🚧 **Note**: Work in Progress 🚧
-
+>
+> Bear in mind that the main branches of agda2train and quill are not necessarily in sync.
+ 
 You should be able to export an Agda file (possibly containing holes) into json format 
 (see [agda2train](https://github.com/omelkonian/agda2train)), and then invoke a script that looks like `/scripts/inference.py`
 to obtain lemma suggestions.
+ 
 
 The second part of this process is partially streamlined through a CLI API.
 
@@ -76,6 +79,11 @@ agda-quill query -file ./data/stdlib/Algebra.Construct.NaturalChoice.Min.json --
 Adjust the training configuration file (`/data/config.json`) and run the training script (`/scripts/train.py`), after any necessary modifications.
 
 #### ... on a new dataset
+
+> ⚠️ **Warning**: Unpinned Dependencies ⚠️
+>
+> The current packaging of quill is tied to the bundled `tokenized.p`. Differences in agda2train versions might necessitate different preprocessing or data digestion pipelines. 
+
 Gather a bunch of JSON exports over an Agda library of your choice (again, using [agda2train](https://github.com/omelkonian/agda2train)).
 Run the preprocessing script (`/scripts/preprocess.py`) to have Python parse and tokenize the exports.
 Then train as you would normally.

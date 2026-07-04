@@ -43,7 +43,7 @@ class Model(Module):
         source_index, target_index = edge_index
         sources = scope_reprs[source_index]
         targets = hole_reprs[target_index]
-        return self.lemma_predictor(self.norm(sources * targets)).squeeze(-1)
+        return self.lemma_predictor(self.norm(sources) * self.norm(targets)).squeeze(-1)
 
     def get_predictions(self, batch: Batch) -> Tensor:
         scope_reprs, hole_reprs = self.encode(batch)

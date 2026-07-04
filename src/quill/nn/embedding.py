@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 from torch import Tensor
 from torch.nn import Module, Parameter, Embedding
-from torch.nn.functional import linear
+from torch.utils.checkpoint import checkpoint
 from scipy.linalg import logm
 
 from .utils import pad_sequence
@@ -14,9 +14,9 @@ class BinaryPathEncoder(Module):
         super().__init__()
         self.dim: int = dim
         self._primitives = Parameter(
-            rope_like_init(dim // 2).unsqueeze(0).repeat(2, 1, 1),
+            rope_like_init(self.dim // 2).unsqueeze(0).repeat(2, 1, 1),
             requires_grad=True)
-        self.identity: Parameter = Parameter(torch.eye(dim).unsqueeze(0))
+        self.identity: Parameter = Parameter(torch.eye(dim).unsqueeze(0), requires_grad=False)
         self._pos_to_path: dict[int, list[bool]] = {}
 
     @property
@@ -43,8 +43,8 @@ class BinaryPathEncoder(Module):
         right_mask = path_words == 1
 
         for step in range(path_words.size(1)):
-            maps[left_mask[:, step]] = linear(maps[left_mask[:, step]], primitives[0])
-            maps[right_mask[:, step]] = linear(maps[right_mask[:, step]], primitives[1])
+            maps[left_mask[:, step]] = maps[left_mask[:, step]] @ primitives[0]
+            maps[right_mask[:, step]] = maps[right_mask[:, step]] @ primitives[1]
         return maps
 
     def forward(self, unique: Tensor) -> Tensor:
@@ -53,7 +53,7 @@ class BinaryPathEncoder(Module):
     def pos_to_path(self, idx: int) -> list[int]:
         if idx in self._pos_to_path:
             return self._pos_to_path[idx]
-        self._pos_to_path[idx] = [] if idx == 1 else [idx % 2] + self.pos_to_path(idx // 2)
+        self._pos_to_path[idx] = [] if idx == 1 else self.pos_to_path(idx // 2) + [idx % 2]
         return self._pos_to_path[idx]
 
 
@@ -86,6 +86,7 @@ class TokenEmbedding(Module):
         self.scope_dropout = scope_dropout
         self.path_encoder = BinaryPathEncoder(dim=dim)
         self.embeddings = Embedding(num_embeddings=11, embedding_dim=dim)
+        self.gradient_checkpointing = True
         """
         Embedding map:
             0 [SOS]
@@ -120,7 +121,10 @@ class TokenEmbedding(Module):
 
         unique_paths, inverse = node_positions.unique(return_inverse=True)
         db_paths = torch.bucketize(token_values[db_mask], unique_paths)
-        positional_encodings = self.path_encoder.forward(unique_paths)
+        if self.gradient_checkpointing and self.training and torch.is_grad_enabled():
+            positional_encodings = checkpoint(self.path_encoder, unique_paths, use_reentrant=False)
+        else:
+            positional_encodings = self.path_encoder.forward(unique_paths)
         db_encodings = positional_encodings[inverse[db_mask]].mT @ positional_encodings[db_paths]
 
         content_embeddings = torch.zeros(

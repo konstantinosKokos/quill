@@ -54,6 +54,29 @@ class Trainer(Model):
                           ap=ap,
                           rp=rp)
 
+    def save_checkpoint(self,
+                        path: str,
+                        optimizer: Optimizer,
+                        scheduler: LRScheduler,
+                        epoch: int,
+                        best_ap: float) -> None:
+        torch.save({'model': self.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                    'scheduler': scheduler.state_dict(),
+                    'epoch': epoch,
+                    'best_ap': best_ap}, path)
+
+    def load_checkpoint(self,
+                        path: str,
+                        optimizer: Optimizer,
+                        scheduler: LRScheduler,
+                        map_location: str) -> tuple[int, float]:
+        checkpoint = torch.load(path, map_location=map_location, weights_only=False)
+        self.load_state_dict(checkpoint['model'])
+        optimizer.load_state_dict(checkpoint['optimizer'])
+        scheduler.load_state_dict(checkpoint['scheduler'])
+        return checkpoint['epoch'] + 1, checkpoint['best_ap']
+
     def train_epoch(self,
                     epoch: Iterator[Batch],
                     optimizer: Optimizer,
